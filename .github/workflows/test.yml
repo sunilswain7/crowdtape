@@ -1,0 +1,15 @@
+name: test
+
+# The engine reads canonical records, not payloads, so the suite needs no key, no
+# network and no recorded data. It runs on every push.
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 -m unittest discover -s tests -t . -v

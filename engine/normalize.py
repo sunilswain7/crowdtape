@@ -1,0 +1,177 @@
+"""
+Raw CoinMarketCap payloads -> canonical records.
+
+Every field name CoinMarketCap chose lives in this file and nowhere else. The engine
+downstream reads only the canonical shape, so when a payload turns out to differ from
+what was assumed, exactly one function changes and the logic and its tests are untouched.
+
+PROVISIONAL. The shapes for `liquidations` and `most-visited` have not been observed on
+a live key yet - the account was on the Basic tier when this was written and both are
+plan-gated. Each normaliser therefore accepts several plausible spellings and records
+what it could not read rather than inventing a value. `python3 -m engine.normalize
+data/<file>.jsonl` prints what was matched and what was dropped, which is how these get
+corrected once real payloads land.
+"""
+from __future__ import annotations
+import dataclasses, json, sys, pathlib
+from typing import Any, Iterable
+
+
+@dataclasses.dataclass(frozen=True)
+class CoinState:
+    """One asset at one instant. The only shape the engine knows about."""
+    at: str
+    coin_id: int
+    symbol: str
+    price: float | None = None
+    market_cap: float | None = None
+    volume_24h: float | None = None
+    rank: int | None = None
+    pct_1h: float | None = None
+    pct_24h: float | None = None
+    pct_7d: float | None = None
+    # attention: 1 = most looked at. None = the stream was unavailable this snapshot.
+    attention_rank: int | None = None
+    # positioning, in USD
+    liq_long_24h: float | None = None
+    liq_short_24h: float | None = None
+
+    @property
+    def turnover(self) -> float | None:
+        """Volume against size. The attention proxy that needs no attention endpoint -
+        it is what the engine falls back to while the Startup tier is pending."""
+        if not self.market_cap or self.volume_24h is None:
+            return None
+        return self.volume_24h / self.market_cap
+
+    @property
+    def liq_total_24h(self) -> float | None:
+        if self.liq_long_24h is None and self.liq_short_24h is None:
+            return None
+        return (self.liq_long_24h or 0.0) + (self.liq_short_24h or 0.0)
+
+    @property
+    def long_share(self) -> float | None:
+        """Of what was liquidated, how much was longs. >0.5 means longs got carried out."""
+        t = self.liq_total_24h
+        if not t:
+            return None
+        return (self.liq_long_24h or 0.0) / t
+
+
+def _num(d: dict, *names: str) -> float | None:
+    """First of `names` present and numeric. CMC abbreviates inconsistently across
+    endpoint families, so candidates are listed rather than assumed."""
+    for n in names:
+        v = d.get(n)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return float(v)
+    return None
+
+
+def _ident(d: dict) -> tuple[int | None, str | None]:
+    cid = d.get("id") or d.get("cryptoId") or d.get("crypto_id")
+    sym = d.get("symbol") or d.get("s") or d.get("code")
+    try:
+        cid = int(cid) if cid is not None else None
+    except (TypeError, ValueError):
+        cid = None
+    return cid, (str(sym).upper() if sym else None)
+
+
+def from_snapshot(snap: dict) -> tuple[list[CoinState], dict[str, str]]:
+    """One snapshot line -> (canonical records, notes about what could not be read)."""
+    at = snap.get("at", "")
+    streams = snap.get("streams", {}) or {}
+    notes: dict[str, str] = {}
+
+    def data(name: str) -> Any:
+        s = streams.get(name) or {}
+        if "error" in s:
+            notes[name] = s["error"]
+            return None
+        return s.get("data")
+
+    # --- price. Observed shape: the recorder already thins this one. ---
+    by_id: dict[int, dict] = {}
+    for c in (data("listings") or []):
+        cid = c.get("id")
+        if cid is None:
+            continue
+        by_id[int(cid)] = {
+            "symbol": (c.get("s") or "").upper(),
+            "price": c.get("p"), "market_cap": c.get("mc"), "volume_24h": c.get("v"),
+            "rank": c.get("r"), "pct_1h": c.get("c1"),
+            "pct_24h": c.get("c24"), "pct_7d": c.get("c7"),
+        }
+
+    # --- attention. UNVERIFIED shape. Rank is position in the returned list; the
+    #     recorder preserves whole records so a magnitude field, if one exists, is
+    #     not thrown away before it has been seen.
+    att: dict[int, int] = {}
+    mv = data("most_visited_24h")
+    if isinstance(mv, list):
+        for row in mv:
+            if not isinstance(row, dict):
+                continue
+            cid, _ = _ident(row)
+            if cid is not None:
+                att[cid] = int(row.get("rank") or (len(att) + 1))
+        if mv and not att:
+            notes["most_visited_24h"] = "records present but no id field matched"
+
+    # --- positioning. UNVERIFIED shape. ---
+    liq: dict[int, tuple[float | None, float | None]] = {}
+    lq = data("liquidations")
+    rows = lq if isinstance(lq, list) else (lq or {}).get("data") if isinstance(lq, dict) else None
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            cid, _ = _ident(row)
+            if cid is None:
+                continue
+            liq[cid] = (
+                _num(row, "longLiquidated24h", "long_liquidated_24h", "long_24h", "longs24h", "long"),
+                _num(row, "shortLiquidated24h", "short_liquidated_24h", "short_24h", "shorts24h", "short"),
+            )
+        if rows and not liq:
+            notes["liquidations"] = "records present but no id field matched"
+
+    out = []
+    for cid, m in by_id.items():
+        lo, sh = liq.get(cid, (None, None))
+        out.append(CoinState(at=at, coin_id=cid, symbol=m["symbol"],
+                             price=m["price"], market_cap=m["market_cap"],
+                             volume_24h=m["volume_24h"], rank=m["rank"],
+                             pct_1h=m["pct_1h"], pct_24h=m["pct_24h"], pct_7d=m["pct_7d"],
+                             attention_rank=att.get(cid),
+                             liq_long_24h=lo, liq_short_24h=sh))
+    return out, notes
+
+
+def load(path: str | pathlib.Path) -> Iterable[tuple[list[CoinState], dict]]:
+    for line in pathlib.Path(path).read_text().splitlines():
+        if line.strip():
+            yield from_snapshot(json.loads(line))
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        sys.exit("usage: python3 -m engine.normalize data/YYYY-MM-DD.jsonl")
+    n = 0
+    seen_notes: dict[str, str] = {}
+    cover = {"attention": 0, "liquidations": 0}
+    for states, notes in load(sys.argv[1]):
+        n += 1
+        seen_notes.update(notes)
+        cover["attention"] += sum(1 for s in states if s.attention_rank is not None)
+        cover["liquidations"] += sum(1 for s in states if s.liq_total_24h is not None)
+        last = states
+    print(f"{n} snapshots, {len(last)} assets in the most recent")
+    print(f"attention covered   : {cover['attention']} asset-observations")
+    print(f"liquidations covered: {cover['liquidations']} asset-observations")
+    if seen_notes:
+        print("\ncould not read:")
+        for k, v in seen_notes.items():
+            print(f"  {k}: {v}")

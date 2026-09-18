@@ -48,11 +48,33 @@ as the work lands.
 | Capability probe (`scripts/probe.py`) | ✅ built |
 | Snapshot recorder (`recorder/record.py`) | ✅ built |
 | Scheduled recording (GitHub Actions, 15 min) | ✅ built |
-| Signal engine | in progress |
-| Event scorecard | not started |
+| Signal engine (`engine/`) | ✅ built, 22 tests |
+| Event scorecard | in progress |
 | Web app | not started |
 | Telegram bot | not started |
 | MCP tool | not started |
+
+## How the engine is built
+
+Three axes - price, attention, leverage - each reduced to a state, then combined into one
+reading. The thresholds are constants at the top of [`engine/signal.py`](engine/signal.py)
+rather than buried in the logic, because a heuristic nobody can see is a heuristic nobody
+can argue with, and every one of them is a judgement call that deserves arguing with.
+
+Every field name CoinMarketCap chose lives in [`engine/normalize.py`](engine/normalize.py)
+and nowhere else. The classifier reads canonical records, so it needs no key, no network
+and no recorded data to test - and when a payload turns out to differ from what was
+assumed, one function changes and the logic and its tests are untouched.
+
+```bash
+python3 -m unittest discover -s tests -t . -v      # 22 tests, no key required
+```
+
+**What the engine will not do is pretend.** When the attention stream is plan-gated, the
+classifier falls back to turnover - volume against market cap - as a proxy for unusual
+interest, and marks the verdict `confident=False`, because a proxy is not the same
+measurement. When an axis is missing entirely it reads `unknown` rather than a default.
+A gated stream is recorded as a 403 in the snapshot, not silently dropped.
 
 ## The dataset is the git history
 
