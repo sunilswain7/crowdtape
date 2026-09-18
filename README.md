@@ -48,8 +48,9 @@ as the work lands.
 | Capability probe (`scripts/probe.py`) | ✅ built |
 | Snapshot recorder (`recorder/record.py`) | ✅ built |
 | Scheduled recording (GitHub Actions, 15 min) | ✅ built |
-| Signal engine (`engine/`) | ✅ built, 22 tests |
-| Event scorecard | in progress |
+| Signal engine (`engine/`) | ✅ built |
+| Event detection + scorecard | ✅ built |
+| Test suite | ✅ 38 tests, green in CI |
 | Web app | not started |
 | Telegram bot | not started |
 | MCP tool | not started |
@@ -67,8 +68,30 @@ and no recorded data to test - and when a payload turns out to differ from what 
 assumed, one function changes and the logic and its tests are untouched.
 
 ```bash
-python3 -m unittest discover -s tests -t . -v      # 22 tests, no key required
+python3 -m unittest discover -s tests -t . -v      # 38 tests, no key required
 ```
+
+## How the scorecard is honest
+
+A reading on its own is a claim. [`engine/events.py`](engine/events.py) turns readings
+into dated, immutable events and grades them against what the price actually did.
+
+Two choices there are worth defending:
+
+**Excess return, not raw return.** An event is scored against the median forward return
+of the universe at the same instant, not against zero. A "loaded spring" that gained 5%
+on a day the whole market gained 6% did not find anything — it lagged a coin picked at
+random. Raw returns flatter every reading in a rising market and damn every reading in a
+falling one, which is how a scorecard turns into a marketing asset instead of a
+measurement.
+
+**Readings that predict nothing are not graded.** `capitulation` is directionally
+ambiguous, so it carries no direction and takes no credit — but it still appears in the
+report with its count, so it cannot quietly vanish for being inconvenient.
+
+Events also have to hold for two consecutive snapshots before they open, because an asset
+sitting on a threshold otherwise flaps between readings and manufactures a dozen events
+out of one situation. There is a test for that.
 
 **What the engine will not do is pretend.** When the attention stream is plan-gated, the
 classifier falls back to turnover - volume against market cap - as a proxy for unusual
