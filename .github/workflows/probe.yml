@@ -5,6 +5,9 @@ name: probe
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   probe:
     runs-on: ubuntu-latest
@@ -19,3 +22,12 @@ jobs:
         with:
           name: probe-output
           path: probe-output/
+      - name: Publish the measured access table
+        run: |
+          git config user.name  "crowdtape-probe"
+          git config user.email "probe@users.noreply.github.com"
+          git add docs/
+          git diff --staged --quiet && echo "access table unchanged" && exit 0
+          git commit -m "probe: measured endpoint access $(date -u +%Y-%m-%dT%H:%MZ)"
+          git pull --rebase --autostash origin main || true
+          git push
