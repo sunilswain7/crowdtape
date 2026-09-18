@@ -14,7 +14,10 @@ producing data the moment the hackathon upgrade lands.
 
 Usage:  CMC_API_KEY=xxx python3 recorder/record.py
 """
-import json, os, sys, time, datetime, urllib.request, urllib.error, pathlib
+import json, os, sys, time, datetime, pathlib
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import net
 
 KEY = os.environ.get("CMC_API_KEY")
 if not KEY:
@@ -52,28 +55,23 @@ STREAMS = [
 def call(path, params):
     qs = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"{BASE}{path}" + (f"?{qs}" if qs else "")
-    req = urllib.request.Request(
-        url, headers={"X-CMC_PRO_API_KEY": KEY, "Accept": "application/json"})
     t0 = time.time()
-    try:
-        with urllib.request.urlopen(req, timeout=40) as r:
-            code, raw = r.status, r.read()
-    except urllib.error.HTTPError as e:
-        code, raw = e.code, e.read()
-    except Exception as e:
-        return {"http": 0, "error": str(e)[:100], "ms": int((time.time() - t0) * 1000)}
+    code, raw = net.request(
+        url, {"X-CMC_PRO_API_KEY": KEY, "Accept": "application/json"}, timeout=40)
+    ms = int((time.time() - t0) * 1000)
+    if code == 0:
+        return {"http": 0, "error": (raw.decode("utf8", "ignore") or "unreachable")[:100], "ms": ms}
     try:
         payload = json.loads(raw)
     except Exception:
-        return {"http": code, "error": "unparseable", "ms": int((time.time() - t0) * 1000)}
+        return {"http": code, "error": "unparseable", "ms": ms}
 
     st = payload.get("status", {}) or {}
     # A path that does not exist answers HTTP 200 with error_code 500. Never treat
     # that as success - it silently records imaginary endpoints as working.
     if code == 200 and st.get("error_code") in (500, "500"):
-        return {"http": code, "error": "PATH-ABSENT", "ms": int((time.time() - t0) * 1000)}
-    out = {"http": code, "ms": int((time.time() - t0) * 1000),
-           "credits": st.get("credit_count")}
+        return {"http": code, "error": "PATH-ABSENT", "ms": ms}
+    out = {"http": code, "ms": ms, "credits": st.get("credit_count")}
     if code == 200:
         out["data"] = payload.get("data")
     else:

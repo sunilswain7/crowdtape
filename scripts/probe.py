@@ -17,7 +17,10 @@ time so a routing change surfaces as a failed control, not as quietly wrong resu
 Usage:  CMC_API_KEY=xxx python3 scripts/probe.py
 Costs:  well under 40 credits.
 """
-import json, os, sys, time, urllib.request, urllib.error, pathlib
+import json, os, sys, time, pathlib
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "recorder"))
+import net
 
 KEY = os.environ.get("CMC_API_KEY")
 if not KEY:
@@ -67,19 +70,16 @@ PROBES = [
 def call(path, params):
     qs = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"{BASE}{path}" + (f"?{qs}" if qs else "")
-    req = urllib.request.Request(url, headers={
-        "X-CMC_PRO_API_KEY": KEY, "Accept": "application/json"})
     t0 = time.time()
+    code, raw = net.request(
+        url, {"X-CMC_PRO_API_KEY": KEY, "Accept": "application/json"}, timeout=30)
+    ms = int((time.time() - t0) * 1000)
+    if code == 0:
+        return {"http": 0, "verdict": "network-error",
+                "msg": (raw.decode("utf8", "ignore") or "unreachable")[:80],
+                "ms": ms, "url": url, "body": None}
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            code, body = r.status, r.read()
-    except urllib.error.HTTPError as e:
-        code, body = e.code, e.read()
-    except Exception as e:
-        return {"http": 0, "verdict": "network-error", "msg": str(e)[:80],
-                "ms": int((time.time()-t0)*1000), "url": url, "body": None}
-    try:
-        data = json.loads(body)
+        data = json.loads(raw)
     except Exception:
         data = {}
     st = data.get("status", {}) or {}
@@ -103,7 +103,7 @@ def call(path, params):
     else:
         verdict = str(code)
     return {"http": code, "verdict": verdict, "msg": str(err_msg)[:80],
-            "ms": int((time.time()-t0)*1000), "url": url, "body": data}
+            "ms": ms, "url": url, "body": data}
 
 
 def describe(node, depth=0, prefix=""):

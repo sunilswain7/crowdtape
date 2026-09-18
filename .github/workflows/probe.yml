@@ -1,0 +1,21 @@
+name: probe
+
+# The authoritative capability check. Runs in CI because the developer's ISP resets
+# connections to pro-api on SNI - see recorder/net.py. Trigger from the Actions tab.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe key capability
+        env:
+          CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
+        run: python3 scripts/probe.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-output
+          path: probe-output/

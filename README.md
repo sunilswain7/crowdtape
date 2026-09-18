@@ -79,6 +79,16 @@ CMC_API_KEY=your-key python3 recorder/record.py
 | `GET /v3/fear-and-greed/latest` | context | Basic |
 | `GET /v1/key/info` | metering | Basic |
 
+### Running the probe
+
+Run it from the **Actions tab** (`probe` workflow), not locally. The machine this was
+built on sits behind an ISP that hijacks DNS for `coinmarketcap.com` *and* injects TCP
+resets keyed on the TLS SNI for `pro-api` - measured at 2 successful calls in 16, spread
+evenly across all four CloudFront edges, so neither a DNS fix nor edge pinning solves it.
+`recorder/net.py` resolves over DoH and rotates edges, which makes a local call *possible*
+but not *reliable*. CI has neither problem. This is the reason the recorder is a scheduled
+workflow rather than something running on a laptop.
+
 Access is **measured, not assumed**. `/v1/key/info` returns no tier name, only a credit
 ceiling — 15,000 means Basic, 450,000 means Startup — so `scripts/probe.py` asks the live
 API what this key may actually reach and records the answer.
