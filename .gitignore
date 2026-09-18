@@ -1,0 +1,6 @@
+.env
+.env.local
+probe-output/
+node_modules/
+.next/
+__pycache__/
