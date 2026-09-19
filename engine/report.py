@@ -121,6 +121,40 @@ def build():
         "scores": scored_by_event.get((e.coin_id, e.opened_at), {}),
     } for e in events[:500]], separators=(",", ":"), default=str))
 
+    # --- per-asset series for the charts ------------------------------------
+    # Only the assets currently carrying a reading, and only the recent window: the
+    # whole universe at full history would be megabytes the page has no use for.
+    flagged = [r["id"] for r in rows if r["reading"] != "nothing"][:40]
+    recent = [t for t in ordered_ts][-500:]
+
+    # The market's own path, as the median asset. Indexing both this and each asset to
+    # 100 at the start of the window puts them on ONE axis honestly - which is the only
+    # legitimate way to plot "the coin" against "the market" without inventing a
+    # correlation out of two arbitrary scales.
+    base = prices_by_ts[recent[0]] if recent else {}
+    market = []
+    for t in recent:
+        rel = [prices_by_ts[t][c] / base[c] for c in base
+               if c in prices_by_ts[t] and base[c]]
+        if rel:
+            market.append({"t": t, "i": 100 * statistics.median(rel)})
+
+    series = {"__market__": market}
+    for cid in flagged:
+        pts = []
+        for t in recent:
+            st = next((x for x in verdicts_by_ts[t] if x.coin_id == cid), None)
+            if st is None:
+                continue
+            price = prices_by_ts[t].get(cid)
+            if price is None:
+                continue
+            pts.append({"t": t, "p": price, "r": st.reading.value,
+                        "i": 100 * price / base[cid] if base.get(cid) else None})
+        if len(pts) >= 2:
+            series[str(cid)] = pts
+    (OUT / "series.json").write_text(json.dumps(series, separators=(",", ":"), default=str))
+
     cards = scorecard(scores)
     (OUT / "scorecard.json").write_text(json.dumps({
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),

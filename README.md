@@ -50,8 +50,9 @@ as the work lands.
 | Scheduled recording (GitHub Actions, 15 min) | ✅ built |
 | Signal engine (`engine/`) | ✅ built |
 | Event detection + scorecard | ✅ built |
+| Site data generator (`engine/report.py`) | ✅ built |
+| Dashboard (`site/`) | ✅ built, published from the repo |
 | Test suite | ✅ 38 tests, green in CI |
-| Web app | not started |
 | Telegram bot | not started |
 | MCP tool | not started |
 

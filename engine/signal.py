@@ -130,13 +130,13 @@ def classify_leverage(s: CoinState, stress_cutoff: float | None = None) -> Lever
 
 def _read(p: Price, a: Attention, lev: Leverage) -> tuple[Reading, str]:
     if a is Attention.RISING and p is Price.FLAT:
-        return Reading.LOADED_SPRING, "Lookups climbing while the price has gone nowhere."
+        return Reading.LOADED_SPRING, "Interest climbing while the price still tracks the market."
     if a is Attention.RISING and p is Price.UP:
         if lev is Leverage.SHORTS_SQUEEZED:
-            return Reading.EXIT_LIQUIDITY, "Crowd arriving into a move already squeezing shorts."
-        return Reading.EXIT_LIQUIDITY, "Crowd arriving after the move, not before it."
+            return Reading.EXIT_LIQUIDITY, "Interest arriving into a move already squeezing shorts."
+        return Reading.EXIT_LIQUIDITY, "Interest arriving after the move, not before it."
     if a is Attention.RISING and p is Price.DOWN:
-        return Reading.CAPITULATION, "Lookups spiking into a fall."
+        return Reading.CAPITULATION, "Interest spiking while it falls behind the market."
     if a is Attention.QUIET and p is Price.UP:
         return Reading.QUIET_ACCUMULATION, "Outperforming while interest sits below average."
     return Reading.NOTHING, "Nothing separating this from the rest of the tape."

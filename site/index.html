@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crowdtape</title>
+<meta name="description" content="The tape is what happened. The crowd is what happens next.">
+<style>
+:root {
+  color-scheme: light;
+  --surface-0:#f6f6f4; --surface-1:#fcfcfb; --surface-2:#f0efec;
+  --line:#e2e1dc; --line-strong:#cfcec8;
+  --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#82817b;
+  /* Reading hues. Three categorical slots, validated all-pairs in both modes.
+     capitulation is deliberately NOT a fourth hue - it is the one reading that
+     claims no direction and is never graded, so it reads neutral. */
+  --spring:#2a78d6; --exit:#eb6834; --quiet:#1baf7a; --neutral:#82817b;
+  --good:#1baf7a; --bad:#e34948;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0:#121211; --surface-1:#1a1a19; --surface-2:#232322;
+    --line:#2f2f2d; --line-strong:#454542;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#8f8e86;
+    --spring:#3987e5; --exit:#d95926; --quiet:#199e70; --neutral:#8f8e86;
+    --good:#199e70; --bad:#e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0:#121211; --surface-1:#1a1a19; --surface-2:#232322;
+  --line:#2f2f2d; --line-strong:#454542;
+  --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#8f8e86;
+  --spring:#3987e5; --exit:#d95926; --quiet:#199e70; --neutral:#8f8e86;
+  --good:#199e70; --bad:#e66767;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--surface-0); color:var(--text-primary);
+  font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px 72px}
+a{color:inherit}
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.011em}
+header{padding:40px 0 22px;border-bottom:1px solid var(--line);margin-bottom:26px}
+.brandrow{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:30px}
+.tag{color:var(--text-secondary);margin-top:6px;font-size:15px}
+.spacer{flex:1}
+button{font:inherit;color:inherit;cursor:pointer}
+.ghost{background:var(--surface-1);border:1px solid var(--line-strong);border-radius:8px;padding:7px 12px}
+.ghost:hover{background:var(--surface-2)}
+.banner{
+  margin-top:20px;padding:12px 14px;border-radius:10px;border:1px solid var(--line-strong);
+  background:var(--surface-1);color:var(--text-secondary);font-size:14px;
+}
+.banner b{color:var(--text-primary);font-weight:600}
+section{margin-top:34px}
+.shead{display:flex;align-items:baseline;gap:12px;margin-bottom:6px;flex-wrap:wrap}
+h2{font-size:19px}
+.note{color:var(--text-muted);font-size:13.5px;margin:0 0 16px}
+/* KPI row */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.tile{background:var(--surface-1);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.tile .label{color:var(--text-secondary);font-size:12.5px}
+.tile .value{font-size:25px;font-weight:600;margin-top:4px;letter-spacing:-.02em}
+.tile .delta{font-size:12.5px;color:var(--text-muted);margin-top:2px}
+/* board */
+.tablewrap{background:var(--surface-1);border:1px solid var(--line);border-radius:12px;overflow:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:right;padding:9px 12px;white-space:nowrap;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child,th.l,td.l{text-align:left}
+th{color:var(--text-secondary);font-weight:500;font-size:12.5px;position:sticky;top:0;background:var(--surface-1)}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--surface-2)}
+td.num{font-variant-numeric:tabular-nums}
+.badge{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--text-primary)}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+.why{color:var(--text-secondary);font-size:13px;white-space:normal;min-width:240px}
+.sym{font-weight:600}
+.pos{color:var(--good)}.neg{color:var(--bad)}
+.prov{color:var(--text-muted);font-size:12.5px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin:0 0 14px;font-size:13px;color:var(--text-secondary)}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.empty{padding:26px 16px;color:var(--text-muted);font-size:14px}
+.chartcard{background:var(--surface-1);border:1px solid var(--line);border-radius:12px;padding:16px}
+select.ghost{padding:5px 9px}
+svg{display:block;width:100%;overflow:visible}
+.grid{stroke:var(--line);stroke-width:1}
+.axis{fill:var(--text-muted);font-size:11px;font-variant-numeric:tabular-nums}
+.ser{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.mkt{stroke:var(--text-muted)}
+.cross{stroke:var(--line-strong);stroke-width:1}
+.tip{
+  position:fixed;pointer-events:none;background:var(--surface-1);color:var(--text-primary);
+  border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;font-size:12.5px;
+  box-shadow:0 6px 20px rgba(0,0,0,.18);opacity:0;transition:opacity .08s;z-index:9;
+  font-variant-numeric:tabular-nums;
+}
+footer{margin-top:46px;padding-top:20px;border-top:1px solid var(--line);color:var(--text-muted);font-size:13px}
+footer code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:12px}
+@media (max-width:620px){h1{font-size:25px}.wrap{padding:0 16px 52px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="brandrow">
+    <div>
+      <h1>Crowdtape</h1>
+      <div class="tag">The tape is what happened. The crowd is what happens next.</div>
+    </div>
+    <div class="spacer"></div>
+    <button class="ghost" id="theme" aria-label="Switch colour theme">Theme</button>
+  </div>
+  <div class="banner" id="banner"></div>
+</header>
+
+<section>
+  <div class="shead"><h2>Market</h2></div>
+  <p class="note" id="asof">Loading…</p>
+  <div class="kpis" id="kpis"></div>
+</section>
+
+<section>
+  <div class="shead"><h2>The board</h2></div>
+  <p class="note">
+    Every asset in the top 200 carrying a reading right now. Price is judged on its
+    <strong>excess over the universe median</strong>, not on its raw move, so a coin up 3%
+    on a day the median coin is up 4% counts as falling behind. Stablecoins are excluded:
+    every peg underperforms a rising market, and that is not a signal.
+  </p>
+  <div class="legend" id="legend"></div>
+  <div class="tablewrap"><table id="board">
+    <thead><tr>
+      <th class="l">Asset</th><th class="l">Reading</th><th>Price</th>
+      <th>24h</th><th>vs median</th><th class="l">Leverage</th><th class="l">Why</th>
+    </tr></thead>
+    <tbody></tbody>
+  </table></div>
+</section>
+
+<section>
+  <div class="shead"><h2>Against the market</h2>
+    <select id="pick" class="ghost" aria-label="Choose an asset"></select></div>
+  <p class="note">
+    Both lines are indexed to 100 at the start of the recorded window, so they share one
+    axis and the gap between them <em>is</em> the excess return the scorecard grades.
+    The strip underneath shows which reading was live at each snapshot.
+  </p>
+  <div class="chartcard">
+    <div class="legend" id="clegend"></div>
+    <div id="chart"></div>
+    <div id="strip"></div>
+    <p class="prov" id="cnote"></p>
+  </div>
+</section>
+
+<section>
+  <div class="shead"><h2>The scorecard</h2></div>
+  <p class="note">
+    Every reading is graded against what the price actually did, at +4h, +24h and +72h,
+    on <strong>excess return over the universe median</strong> — beating zero in a rising
+    market is not skill. <strong>Misses are shown.</strong> <code>capitulation</code>
+    claims no direction, so it is counted and never graded.
+  </p>
+  <div class="tablewrap"><table id="cards">
+    <thead><tr>
+      <th class="l">Reading</th><th>Horizon</th><th>Events</th>
+      <th>Graded</th><th>Hit rate</th><th>Mean excess</th>
+    </tr></thead>
+    <tbody></tbody>
+  </table></div>
+</section>
+
+<footer>
+  <p id="prov"></p>
+  <p>
+    Built on the CoinMarketCap API for the Build with CMC hackathon.
+    Every number is reproducible: <code>python3 -m engine.report</code> regenerates this
+    page's data from the recorded snapshots in the repository. No backend, no key in the
+    browser. <strong>Not investment advice.</strong>
+  </p>
+</footer>
+
+</div>
+<script type="module">
+const $ = s => document.querySelector(s);
+
+// --- theme -----------------------------------------------------------------
+const saved = (() => { try { return localStorage.getItem("ct-theme"); } catch { return null; } })();
+if (saved) document.documentElement.dataset.theme = saved;
+$("#theme").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("ct-theme", next); } catch {}
+};
+
+// --- formatting ------------------------------------------------------------
+const READINGS = {
+  loaded_spring:      { label: "Loaded spring",      color: "var(--spring)" },
+  exit_liquidity:     { label: "Exit liquidity",     color: "var(--exit)" },
+  quiet_accumulation: { label: "Quiet accumulation", color: "var(--quiet)" },
+  capitulation:       { label: "Capitulation",       color: "var(--neutral)" },
+  nothing:            { label: "—",                  color: "var(--neutral)" },
+};
+const LEVERAGE = {
+  longs_flushing: "Longs flushing", shorts_squeezed: "Shorts squeezed",
+  quiet: "Quiet", unknown: "—",
+};
+const money = v => v == null ? "—"
+  : v >= 1e12 ? "$" + (v/1e12).toFixed(2) + "T"
+  : v >= 1e9  ? "$" + (v/1e9).toFixed(1)  + "B"
+  : v >= 1e6  ? "$" + (v/1e6).toFixed(1)  + "M"
+  : "$" + v.toLocaleString();
+const price = v => v == null ? "—"
+  : "$" + (v >= 1 ? v.toLocaleString(undefined,{maximumFractionDigits:2})
+                  : v.toPrecision(3));
+const pct = (v, d = 2) => v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(d) + "%";
+const signed = v => `<span class="${v >= 0 ? "pos" : "neg"}">${pct(v)}</span>`;
+
+const load = async f => (await fetch(`./data/${f}?v=${Date.now()}`)).json();
+
+// --- render ----------------------------------------------------------------
+const [latest, cards] = await Promise.all([load("latest.json"), load("scorecard.json")]);
+
+// The gating notice is the first thing on the page, not a footnote. Every reading
+// below is weaker while attention is unavailable, and saying so is the point.
+$("#banner").innerHTML = latest.attention_available
+  ? `<b>Attention data is live.</b> Readings use CoinMarketCap's most-visited feed —
+     what people are looking up, not what they are posting about.`
+  : `<b>Attention data is unavailable on this API plan.</b> Every
+     <code>most-visited</code> call returns 403, so the crowd axis falls back to turnover
+     (volume ÷ market cap) as a proxy for unusual interest. A proxy is not the same
+     measurement, so every reading below is marked unconfirmed. The positioning and price
+     axes are unaffected.`;
+
+const at = new Date(latest.at);
+$("#asof").textContent =
+  `${latest.universe} assets · snapshot ${at.toUTCString().replace("GMT","UTC")} · `
+  + `${latest.snapshots_recorded} snapshots recorded since `
+  + new Date(latest.first_recorded).toUTCString().slice(5, 16);
+
+const flagged = latest.rows.filter(r => r.reading !== "nothing");
+const counts = {};
+for (const r of flagged) counts[r.reading] = (counts[r.reading] || 0) + 1;
+
+$("#kpis").innerHTML = [
+  { label: "Assets carrying a reading", value: flagged.length,
+    delta: `of ${latest.universe} in the universe` },
+  { label: "Median 24h move", value: pct(latest.median_move_24h, 2),
+    delta: "the bar every asset is judged against" },
+  { label: "Exit liquidity", value: counts.exit_liquidity || 0,
+    delta: "crowd arriving after the move" },
+  { label: "Loaded spring", value: counts.loaded_spring || 0,
+    delta: "crowd arriving before it" },
+].map(t => `<div class="tile"><div class="label">${t.label}</div>
+   <div class="value">${t.value}</div><div class="delta">${t.delta}</div></div>`).join("");
+
+$("#legend").innerHTML = Object.entries(READINGS)
+  .filter(([k]) => k !== "nothing")
+  .map(([, r]) => `<span><i class="dot" style="background:${r.color}"></i>${r.label}</span>`)
+  .join("");
+
+const order = ["exit_liquidity", "loaded_spring", "capitulation", "quiet_accumulation"];
+flagged.sort((a, b) => order.indexOf(a.reading) - order.indexOf(b.reading)
+                    || (a.rank ?? 9999) - (b.rank ?? 9999));
+
+$("#board tbody").innerHTML = flagged.length ? flagged.map(r => {
+  const R = READINGS[r.reading];
+  const excess = r.pct_24h == null ? null : r.pct_24h - latest.median_move_24h;
+  return `<tr>
+    <td class="l"><span class="sym">${r.symbol}</span>
+      <span class="prov"> #${r.rank ?? "—"}</span></td>
+    <td class="l"><span class="badge"><i class="dot" style="background:${R.color}"></i>${R.label}</span></td>
+    <td class="num">${price(r.price)}</td>
+    <td class="num">${signed(r.pct_24h)}</td>
+    <td class="num">${signed(excess)}</td>
+    <td class="l">${LEVERAGE[r.leverage] ?? "—"}</td>
+    <td class="l why">${r.why}${r.confident ? "" :
+      ` <span class="prov">· unconfirmed</span>`}</td>
+  </tr>`;
+}).join("") : `<tr><td colspan="7" class="empty">Nothing is carrying a reading in this
+  snapshot. That is a real answer, not a missing one.</td></tr>`;
+
+$("#cards tbody").innerHTML = cards.cards.length ? cards.cards.map(c => `<tr>
+    <td class="l"><span class="badge"><i class="dot"
+      style="background:${READINGS[c.reading].color}"></i>${READINGS[c.reading].label}</span></td>
+    <td class="num">+${c.horizon_h}h</td>
+    <td class="num">${c.n}</td>
+    <td class="num">${c.graded}</td>
+    <td class="num">${c.hit_rate == null ? "not graded" : Math.round(c.hit_rate * 100) + "%"}</td>
+    <td class="num">${signed(c.mean_excess * 100)}</td>
+  </tr>`).join("") : `<tr><td colspan="6" class="empty">No reading is old enough to grade
+    yet. The shortest horizon is four hours.</td></tr>`;
+
+// --- chart: indexed coin vs indexed market, one axis --------------------------
+const series = await load("series.json");
+const market = series.__market__ || [];
+const pickable = flagged.filter(r => series[r.id]);
+const pick = $("#pick");
+pick.innerHTML = pickable.map(r =>
+  `<option value="${r.id}">${r.symbol} — ${READINGS[r.reading].label}</option>`).join("");
+
+const tip = document.createElement("div");
+tip.className = "tip";
+document.body.appendChild(tip);
+
+function draw(id) {
+  const pts = (series[id] || []).filter(p => p.i != null);
+  const row = latest.rows.find(r => r.id == id);
+  if (pts.length < 2) { $("#chart").innerHTML =
+    `<p class="empty">Not enough snapshots yet for ${row?.symbol ?? "this asset"}.</p>`;
+    $("#strip").innerHTML = ""; return; }
+
+  const W = 1100, H = 240, P = { t: 14, r: 56, b: 24, l: 44 };
+  const ts = pts.map(p => Date.parse(p.t));
+  const x0 = Math.min(...ts), x1 = Math.max(...ts);
+  const mk = market.filter(m => Date.parse(m.t) >= x0);
+  const vals = pts.map(p => p.i).concat(mk.map(m => m.i));
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.12 || 1; lo -= pad; hi += pad;
+  // Snap the scale to a clean step so the ticks read 100 / 102 / 104, never 101.8.
+  const raw = (hi - lo) / 4, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].find(m => m * mag >= raw) * mag;
+  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  const X = t => P.l + (W - P.l - P.r) * (t - x0) / (x1 - x0 || 1);
+  const Y = v => P.t + (H - P.t - P.b) * (1 - (v - lo) / (hi - lo || 1));
+  const path = a => a.map((p, i) => (i ? "L" : "M") + X(Date.parse(p.t)) + " " + Y(p.i)).join("");
+
+  const dp = step < 1 ? String(step).split(".")[1].length : 0, grid = [];
+  for (let v = lo; v <= hi + 1e-9; v += step) {
+    grid.push(`<line class="grid" x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}"/>
+      <text class="axis" x="${P.l - 8}" y="${Y(v) + 4}" text-anchor="end">${v.toFixed(dp)}</text>`);
+  }
+  const colour = READINGS[row?.reading ?? "nothing"].color;
+  const last = pts.at(-1), lastM = mk.at(-1);
+
+  $("#chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="${row?.symbol} indexed against the market median, both starting at 100">
+    ${grid.join("")}
+    ${mk.length > 1 ? `<path class="ser mkt" d="${path(mk)}"/>` : ""}
+    <path class="ser" style="stroke:${colour}" d="${path(pts)}"/>
+    <circle cx="${X(Date.parse(last.t))}" cy="${Y(last.i)}" r="4.5"
+      fill="${colour}" stroke="var(--surface-1)" stroke-width="2"/>
+    <text class="axis" x="${X(Date.parse(last.t)) + 9}" y="${Y(last.i) + 4}"
+      style="fill:var(--text-primary)">${last.i.toFixed(1)}</text>
+    ${lastM ? `<text class="axis" x="${X(Date.parse(lastM.t)) + 9}" y="${Y(lastM.i) + 4}"
+      >${lastM.i.toFixed(1)}</text>` : ""}
+    <line id="cx" class="cross" y1="${P.t}" y2="${H - P.b}" x1="-99" x2="-99"/>
+    <rect id="hit" x="${P.l}" y="${P.t}" width="${W - P.l - P.r}" height="${H - P.t - P.b}"
+      fill="transparent" style="cursor:crosshair"/>
+  </svg>`;
+
+  // reading strip, sharing the x-axis above it
+  $("#strip").innerHTML = `<svg viewBox="0 0 ${W} 26" role="img"
+      aria-label="Reading at each snapshot">` + pts.map((p, i) => {
+    const xa = X(Date.parse(p.t));
+    const xb = i + 1 < pts.length ? X(Date.parse(pts[i + 1].t)) : xa + 6;
+    return `<rect x="${xa}" y="6" width="${Math.max(2, xb - xa - 2)}" height="10" rx="3"
+      fill="${READINGS[p.r].color}" opacity="${p.r === "nothing" ? .22 : .95}"><title>${
+      new Date(p.t).toUTCString()} — ${READINGS[p.r].label}</title></rect>`;
+  }).join("") + `</svg>`;
+
+  $("#clegend").innerHTML =
+    `<span><i class="dot" style="background:${colour}"></i>${row?.symbol}</span>` +
+    `<span><i class="dot" style="background:var(--text-muted)"></i>Market median</span>`;
+  $("#cnote").textContent =
+    `${pts.length} snapshots · both indexed to 100 at ${new Date(pts[0].t)
+      .toUTCString().replace("GMT","UTC")}`;
+
+  const svg = $("#chart svg"), cx = svg.querySelector("#cx");
+  svg.querySelector("#hit").onpointermove = e => {
+    const r = svg.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width * W;
+    let best = pts[0], bd = Infinity;
+    for (const p of pts) { const d = Math.abs(X(Date.parse(p.t)) - px);
+      if (d < bd) { bd = d; best = p; } }
+    const bx = X(Date.parse(best.t));
+    cx.setAttribute("x1", bx); cx.setAttribute("x2", bx);
+    const m = mk.reduce((a, b) =>
+      Math.abs(Date.parse(b.t) - Date.parse(best.t)) < Math.abs(Date.parse(a.t) - Date.parse(best.t)) ? b : a, mk[0]);
+    tip.innerHTML = `<b>${new Date(best.t).toUTCString().slice(5, 22)} UTC</b><br>
+      ${row?.symbol} ${best.i.toFixed(2)} · market ${m ? m.i.toFixed(2) : "—"}<br>
+      <span style="color:var(--text-secondary)">excess ${
+        m ? ((best.i - m.i) >= 0 ? "+" : "") + (best.i - m.i).toFixed(2) + " pts" : "—"}
+      · ${READINGS[best.r].label}</span>`;
+    tip.style.opacity = 1;
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - 220) + "px";
+    tip.style.top = (e.clientY - 12) + "px";
+  };
+  svg.querySelector("#hit").onpointerleave = () => {
+    tip.style.opacity = 0; cx.setAttribute("x1", -99); cx.setAttribute("x2", -99);
+  };
+}
+if (pickable.length) { draw(pickable[0].id); pick.onchange = () => draw(pick.value); }
+else $("#chart").innerHTML = `<p class="empty">Nothing is flagged in this snapshot.</p>`;
+
+$("#prov").innerHTML =
+  `${cards.events_total} events opened · ${cards.events_graded} graded so far · `
+  + `generated ${new Date(cards.generated_at).toUTCString().replace("GMT","UTC")}.`
+  + (Object.keys(latest.unavailable || {}).length
+      ? ` Streams unavailable this snapshot: ${Object.keys(latest.unavailable).join(", ")}.`
+      : "");
+</script>
+</body>
+</html>
