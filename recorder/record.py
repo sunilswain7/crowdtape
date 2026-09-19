@@ -30,6 +30,7 @@ DATA.mkdir(exist_ok=True)
 
 UNIVERSE = 200  # listings/latest is priced per 200 data points, so this costs 1 credit
 
+
 # axis: what each stream feeds. tier: lowest plan that can call it.
 STREAMS = [
     # --- ATTENTION. Startup tier. The uncontested half. ---

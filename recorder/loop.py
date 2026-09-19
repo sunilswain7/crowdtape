@@ -36,7 +36,11 @@ def run(*args: str) -> tuple[int, str]:
 
 
 def commit(n: int) -> None:
-    run("git", "add", "data/")
+    # Regenerate the site's data in the same commit as the snapshots that produced it,
+    # so the published board is never describing a state the repository cannot show.
+    code, out = run(sys.executable, "-m", "engine.report")
+    print(f"   report: {out.splitlines()[0] if out else 'failed'}", flush=True)
+    run("git", "add", "data/", "site/")
     code, _ = run("git", "diff", "--staged", "--quiet")
     if code == 0:
         print("   nothing new to commit", flush=True)

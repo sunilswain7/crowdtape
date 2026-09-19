@@ -4,3 +4,4 @@ probe-output/
 node_modules/
 .next/
 __pycache__/
+*.pyc
