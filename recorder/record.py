@@ -14,7 +14,7 @@ producing data the moment the hackathon upgrade lands.
 
 Usage:  CMC_API_KEY=xxx python3 recorder/record.py
 """
-import json, os, sys, time, datetime, pathlib
+import json, math, os, sys, time, datetime, pathlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import net
@@ -46,7 +46,7 @@ STREAMS = [
 
     # --- PRICE + CONTEXT. Works on Basic. The baseline every signal is measured against. ---
     ("price",       "listings",         "GET", "/v1/cryptocurrency/listings/latest",
-     {"limit": str(UNIVERSE), "convert": "USD"}),
+     {"limit": str(UNIVERSE), "convert": "USD", "aux": "cmc_rank,tags"}),
     ("context",     "global",           "GET", "/v1/global-metrics/quotes/latest", {}),
     ("context",     "fear_greed",       "GET", "/v3/fear-and-greed/latest", {}),
 ]
@@ -79,25 +79,96 @@ def call(path, params):
     return out
 
 
+def _r(x, sig=6):
+    """Round to significant figures. Prices span 1e-9 to 1e5, so decimal places are
+    the wrong unit; this halves the stored size without losing anything the engine reads."""
+    if not isinstance(x, (int, float)) or isinstance(x, bool) or x == 0:
+        return x
+    try:
+        return round(x, -int(math.floor(math.log10(abs(x)))) + (sig - 1))
+    except (ValueError, OverflowError):
+        return x
+
+
 def thin(stream, data):
-    """Keep the fields the engine reads. Full payloads would bloat the repo to
-    nothing useful - the shape is stable and documented in docs/schema.md."""
+    """Keep what the engine reads and discard the rest.
+
+    An untrimmed snapshot measured 133 KB, half of it `fiats` arrays on exchange records
+    that nothing looks at. At one snapshot every ten minutes that is 19 MB a day into a
+    git repository, so the payloads are cut down here rather than at read time. Field
+    names below are taken from observed responses - see docs/payload-shapes.md."""
     if data is None:
         return None
+
     if stream == "listings" and isinstance(data, list):
-        return [{"id": c.get("id"), "s": c.get("symbol"), "r": c.get("cmc_rank"),
-                 "p": (c.get("quote", {}).get("USD", {}) or {}).get("price"),
-                 "mc": (c.get("quote", {}).get("USD", {}) or {}).get("market_cap"),
-                 "v": (c.get("quote", {}).get("USD", {}) or {}).get("volume_24h"),
-                 "c1": (c.get("quote", {}).get("USD", {}) or {}).get("percent_change_1h"),
-                 "c24": (c.get("quote", {}).get("USD", {}) or {}).get("percent_change_24h"),
-                 "c7": (c.get("quote", {}).get("USD", {}) or {}).get("percent_change_7d")}
-                for c in data]
+        out = []
+        for c in data:
+            q = (c.get("quote", {}) or {}).get("USD", {}) or {}
+            tags = c.get("tags")
+            out.append({"id": c.get("id"), "s": c.get("symbol"), "r": c.get("cmc_rank"),
+                        # None distinguishes "not a stablecoin" from "tags not returned"
+                        "st": ("stablecoin" in tags) if isinstance(tags, list) else None,
+                        "p": _r(q.get("price")), "mc": _r(q.get("market_cap")),
+                        "v": _r(q.get("volume_24h")), "c1": _r(q.get("percent_change_1h"), 4),
+                        "c24": _r(q.get("percent_change_24h"), 4),
+                        "c7": _r(q.get("percent_change_7d"), 4)})
+        return out
+
+    if stream == "liquidations" and isinstance(data, dict):
+        # {"cryptocurrencies": [{crypto_id, symbol, cmc_rank, quotes: [{...}]}], total_size}
+        # The row-level crypto_id is the asset (BTC = 1). The crypto_id inside `quotes`
+        # is the convert currency (USD = 2781) and is not the asset.
+        rows = []
+        for c in data.get("cryptocurrencies", []) or []:
+            q = (c.get("quotes") or [{}])[0]
+            rows.append({"id": c.get("crypto_id"), "s": c.get("symbol"),
+                         "r": c.get("cmc_rank"),
+                         "l1": _r(q.get("long_liquidations_1h")),
+                         "s1": _r(q.get("short_liquidations_1h")),
+                         "l4": _r(q.get("long_liquidations_4h")),
+                         "s4": _r(q.get("short_liquidations_4h")),
+                         "l24": _r(q.get("long_liquidations_24h")),
+                         "s24": _r(q.get("short_liquidations_24h"))})
+        return {"rows": rows, "total_size": data.get("total_size"),
+                "has_more": data.get("has_more")}
+
+    if stream == "deriv_exchanges" and isinstance(data, dict):
+        # Per-venue open interest, aggregated. This is market-wide leverage context, not
+        # a per-asset signal, so only the total and the largest venues are worth keeping -
+        # the raw response carries an 89-entry `fiats` array per exchange.
+        venues = data.get("exchanges", []) or []
+        total_oi = total_vol = 0.0
+        top = []
+        for e in venues:
+            q = (e.get("quotes") or [{}])[0]
+            oi = q.get("open_interest_usd") or 0.0
+            vol = q.get("derivative_volume_usd") or 0.0
+            total_oi += oi
+            total_vol += vol
+            top.append({"n": e.get("exchange_name"), "oi": _r(oi), "v": _r(vol)})
+        top.sort(key=lambda x: x["oi"] or 0, reverse=True)
+        return {"total_oi": _r(total_oi), "total_vol": _r(total_vol),
+                "venues": len(venues), "top": top[:15]}
+
+    if stream == "global" and isinstance(data, dict):
+        q = (data.get("quote", {}) or {}).get("USD", {}) or {}
+        return {k: _r(v) for k, v in {
+            "total_market_cap": q.get("total_market_cap"),
+            "total_volume_24h": q.get("total_volume_24h"),
+            "altcoin_market_cap": q.get("altcoin_market_cap"),
+            "stablecoin_market_cap": q.get("stablecoin_market_cap"),
+            "derivatives_volume_24h": q.get("derivatives_volume_24h"),
+            "btc_dominance": data.get("btc_dominance"),
+            "eth_dominance": data.get("eth_dominance"),
+            "btc_dominance_24h_change": data.get("btc_dominance_24h_percentage_change"),
+            "active_cryptocurrencies": data.get("active_cryptocurrencies"),
+        }.items()}
+
     if stream.startswith("most_visited") or stream == "trending_latest":
         if isinstance(data, list):
-            # Rank is position in the returned list. Keep the whole record until the
-            # probe tells us whether a magnitude field exists - we cannot afford to
-            # discard the one field the signal might depend on.
+            # Shape UNVERIFIED - plan-gated since the key was issued. Whole records are
+            # kept until one has been seen, because discarding the field the signal turns
+            # out to depend on is the one mistake that cannot be undone after the fact.
             return [dict(rank=i + 1, **{k: v for k, v in c.items() if k != "quote"})
                     for i, c in enumerate(data[:100])]
     return data

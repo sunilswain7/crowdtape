@@ -5,12 +5,18 @@ Every field name CoinMarketCap chose lives in this file and nowhere else. The en
 downstream reads only the canonical shape, so when a payload turns out to differ from
 what was assumed, exactly one function changes and the logic and its tests are untouched.
 
-PROVISIONAL. The shapes for `liquidations` and `most-visited` have not been observed on
-a live key yet - the account was on the Basic tier when this was written and both are
-plan-gated. Each normaliser therefore accepts several plausible spellings and records
-what it could not read rather than inventing a value. `python3 -m engine.normalize
-data/<file>.jsonl` prints what was matched and what was dropped, which is how these get
-corrected once real payloads land.
+`liquidations` was corrected on 19 Sep 2026 from an observed response - see
+docs/payload-shapes.md. Two formats are read, because the recorder's own thinning changed
+on that date and the snapshots taken before it are still valid data:
+`{"rows": [...]}` (current) and `{"cryptocurrencies": [...]}` (raw, as first recorded).
+
+`most_visited` remains UNVERIFIED. It has answered 403 on every call since the key was
+issued, so its normaliser still accepts several plausible spellings and records what it
+could not read rather than inventing a value.
+
+    python3 -m engine.normalize data/2026-09-19.jsonl
+
+prints what was matched and what was dropped, which is how the rest gets corrected.
 """
 from __future__ import annotations
 import dataclasses, json, sys, pathlib
@@ -30,9 +36,19 @@ class CoinState:
     pct_1h: float | None = None
     pct_24h: float | None = None
     pct_7d: float | None = None
-    # attention: 1 = most looked at. None = the stream was unavailable this snapshot.
+    # attention: 1 = most looked at. None means either "not on the list" or "the stream
+    # was unavailable", and the difference matters enormously - absent from a list you
+    # could see is evidence of low interest, absent because you are blind is not.
     attention_rank: int | None = None
-    # positioning, in USD
+    attention_available: bool = False
+    # None means CoinMarketCap did not return tags on this snapshot, which is not the
+    # same as "not a stablecoin" and must not be treated as it.
+    is_stablecoin: bool | None = None
+    # positioning, in USD. 1h is the sharper read - at a ten-minute snapshot interval a
+    # 24h window is mostly yesterday - but both are kept because 24h gives the context
+    # that says whether an hour was unusual.
+    liq_long_1h: float | None = None
+    liq_short_1h: float | None = None
     liq_long_24h: float | None = None
     liq_short_24h: float | None = None
 
@@ -101,7 +117,7 @@ def from_snapshot(snap: dict) -> tuple[list[CoinState], dict[str, str]]:
         by_id[int(cid)] = {
             "symbol": (c.get("s") or "").upper(),
             "price": c.get("p"), "market_cap": c.get("mc"), "volume_24h": c.get("v"),
-            "rank": c.get("r"), "pct_1h": c.get("c1"),
+            "rank": c.get("r"), "st": c.get("st"), "pct_1h": c.get("c1"),
             "pct_24h": c.get("c24"), "pct_7d": c.get("c7"),
         }
 
@@ -110,6 +126,7 @@ def from_snapshot(snap: dict) -> tuple[list[CoinState], dict[str, str]]:
     #     not thrown away before it has been seen.
     att: dict[int, int] = {}
     mv = data("most_visited_24h")
+    attention_available = isinstance(mv, list) and bool(mv)
     if isinstance(mv, list):
         for row in mv:
             if not isinstance(row, dict):
@@ -121,32 +138,38 @@ def from_snapshot(snap: dict) -> tuple[list[CoinState], dict[str, str]]:
             notes["most_visited_24h"] = "records present but no id field matched"
 
     # --- positioning. UNVERIFIED shape. ---
-    liq: dict[int, tuple[float | None, float | None]] = {}
-    lq = data("liquidations")
-    rows = lq if isinstance(lq, list) else (lq or {}).get("data") if isinstance(lq, dict) else None
-    if isinstance(rows, list):
-        for row in rows:
-            if not isinstance(row, dict):
+    liq: dict[int, tuple] = {}
+    lq = data("liquidations") or {}
+    if isinstance(lq, dict) and "rows" in lq:
+        for row in lq["rows"]:
+            cid = row.get("id")
+            if cid is not None:
+                liq[int(cid)] = (row.get("l1"), row.get("s1"),
+                                 row.get("l24"), row.get("s24"))
+    elif isinstance(lq, dict) and "cryptocurrencies" in lq:
+        # raw shape, as recorded before the thinning was corrected
+        for c in lq["cryptocurrencies"] or []:
+            cid = c.get("crypto_id")          # the asset; the crypto_id inside
+            if cid is None:                   # `quotes` is the convert currency
                 continue
-            cid, _ = _ident(row)
-            if cid is None:
-                continue
-            liq[cid] = (
-                _num(row, "longLiquidated24h", "long_liquidated_24h", "long_24h", "longs24h", "long"),
-                _num(row, "shortLiquidated24h", "short_liquidated_24h", "short_24h", "shorts24h", "short"),
-            )
-        if rows and not liq:
-            notes["liquidations"] = "records present but no id field matched"
+            q = (c.get("quotes") or [{}])[0]
+            liq[int(cid)] = (q.get("long_liquidations_1h"), q.get("short_liquidations_1h"),
+                             q.get("long_liquidations_24h"), q.get("short_liquidations_24h"))
+    elif lq:
+        notes["liquidations"] = f"unrecognised shape: {list(lq)[:4]}"
 
     out = []
     for cid, m in by_id.items():
-        lo, sh = liq.get(cid, (None, None))
+        l1, s1, l24, s24 = liq.get(cid, (None, None, None, None))
         out.append(CoinState(at=at, coin_id=cid, symbol=m["symbol"],
                              price=m["price"], market_cap=m["market_cap"],
                              volume_24h=m["volume_24h"], rank=m["rank"],
                              pct_1h=m["pct_1h"], pct_24h=m["pct_24h"], pct_7d=m["pct_7d"],
                              attention_rank=att.get(cid),
-                             liq_long_24h=lo, liq_short_24h=sh))
+                             attention_available=attention_available,
+                             is_stablecoin=m["st"],
+                             liq_long_1h=l1, liq_short_1h=s1,
+                             liq_long_24h=l24, liq_short_24h=s24))
     return out, notes
 
 

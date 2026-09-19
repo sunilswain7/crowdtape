@@ -1,6 +1,16 @@
 # Where this stands
 
-Updated 18 September 2026. Submissions close **30 September 2026, 23:59 UTC**.
+Updated 19 September 2026. Submissions close **30 September 2026, 23:59 UTC**.
+
+## Still on the Basic tier
+
+As of the 05:09 UTC snapshot on 19 Sep, every attention endpoint still answers
+**403 "Your API Key subscription plan doesn't support this endpoint"**. The account was
+registered on 18 Sep and the upgrade was promised within 24 hours. It has not arrived.
+**Escalate on the DoraHacks Q&A tab now.** Another entrant sat on Basic through day 4 of
+their build and shipped with a crippled product because of it.
+
+Everything else works on Basic and is recording.
 
 ## Blocked on exactly one thing
 
@@ -22,10 +32,11 @@ candidates rather than facts, and no UI gets built on top of guesses.
 | Capability probe | `scripts/probe.py` | ✅ publishes a measured access table |
 | Snapshot recorder | `recorder/record.py` | ✅ never run against a live key |
 | Transport | `recorder/net.py` | ✅ DoH + edge rotation |
-| Normalisers | `engine/normalize.py` | ⚠️ provisional field names |
+| Recorder loop | `recorder/loop.py` | ✅ self-clocking, replaces cron |
+| Normalisers | `engine/normalize.py` | ✅ liquidations observed; attention still unseen |
 | Classifier | `engine/signal.py` | ✅ |
 | Events + scorecard | `engine/events.py` | ✅ |
-| Tests | `tests/` | ✅ 38, green in CI |
+| Tests | `tests/` | ✅ 40, green in CI |
 
 ## Not started
 

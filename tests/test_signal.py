@@ -11,10 +11,15 @@ from engine.signal import (Attention, Leverage, Price, Reading, classify,
                            classify_attention, classify_leverage, classify_price)
 
 
-def coin(cid=1, sym="AAA", mc=1e9, vol=1e8, pct24=0.0, att=None, lo=None, sh=None):
+def coin(cid=1, sym="AAA", mc=1e9, vol=1e8, pct24=0.0, att=None, lo=None, sh=None,
+         att_avail=False, stable=None):
     return CoinState(at="2026-09-18T00:00:00Z", coin_id=cid, symbol=sym, price=1.0,
                      market_cap=mc, volume_24h=vol, pct_24h=pct24,
-                     attention_rank=att, liq_long_24h=lo, liq_short_24h=sh)
+                     attention_rank=att, attention_available=att_avail,
+                     is_stablecoin=stable, liq_long_24h=lo, liq_short_24h=sh)
+
+
+QUIET_CUT = 0.002   # a universe whose upper-quartile liquidation intensity is 0.2%
 
 
 class Price_(unittest.TestCase):
@@ -55,26 +60,34 @@ class Attention_(unittest.TestCase):
 
 class Leverage_(unittest.TestCase):
     def test_unknown_without_liquidations(self):
-        self.assertIs(classify_leverage(coin()), Leverage.UNKNOWN)
+        self.assertIs(classify_leverage(coin(), QUIET_CUT), Leverage.UNKNOWN)
 
-    def test_small_liquidations_are_quiet(self):
-        self.assertIs(classify_leverage(coin(mc=1e9, lo=1e5, sh=1e5)), Leverage.QUIET)
+    def test_no_cutoff_means_quiet_rather_than_a_guess(self):
+        """With no universe to rank against there is no such thing as unusual stress."""
+        self.assertIs(classify_leverage(coin(mc=1e9, lo=9e6, sh=1e6), None), Leverage.QUIET)
+
+    def test_below_the_universe_cutoff_is_quiet(self):
+        self.assertIs(classify_leverage(coin(mc=1e9, lo=1e5, sh=1e5), QUIET_CUT), Leverage.QUIET)
 
     def test_lopsided_flush(self):
-        self.assertIs(classify_leverage(coin(mc=1e9, lo=9e6, sh=1e6)), Leverage.LONGS_FLUSHING)
-        self.assertIs(classify_leverage(coin(mc=1e9, lo=1e6, sh=9e6)), Leverage.SHORTS_SQUEEZED)
+        self.assertIs(classify_leverage(coin(mc=1e9, lo=9e6, sh=1e6), QUIET_CUT),
+                      Leverage.LONGS_FLUSHING)
+        self.assertIs(classify_leverage(coin(mc=1e9, lo=1e6, sh=9e6), QUIET_CUT),
+                      Leverage.SHORTS_SQUEEZED)
 
     def test_balanced_heavy_liquidation_is_not_lopsided(self):
-        self.assertIs(classify_leverage(coin(mc=1e9, lo=5e6, sh=5e6)), Leverage.QUIET)
+        self.assertIs(classify_leverage(coin(mc=1e9, lo=5e6, sh=5e6), QUIET_CUT), Leverage.QUIET)
 
     def test_zero_liquidations_is_quiet_not_a_divide_by_zero(self):
-        self.assertIs(classify_leverage(coin(mc=1e9, lo=0.0, sh=0.0)), Leverage.QUIET)
+        self.assertIs(classify_leverage(coin(mc=1e9, lo=0.0, sh=0.0), QUIET_CUT), Leverage.QUIET)
 
 
 class Readings(unittest.TestCase):
     def setUp(self):
-        # a universe wide enough for the cross-sectional z-score to mean something
-        self.filler = [coin(cid=100 + i, sym=f"F{i}", vol=1e8) for i in range(30)]
+        # A universe wide enough for the cross-sectional measures to mean something, and
+        # carrying liquidations of its own so an upper-quartile cutoff exists at all.
+        self.filler = [coin(cid=100 + i, sym=f"F{i}", vol=1e8, lo=1e5, sh=1e5)
+                       for i in range(30)]
 
     def verdict_for(self, subject, prev=None):
         states = [subject] + self.filler
@@ -98,10 +111,22 @@ class Readings(unittest.TestCase):
         self.assertIs(v.reading, Reading.CAPITULATION)
         self.assertIs(v.leverage, Leverage.LONGS_FLUSHING)
 
-    def test_quiet_accumulation(self):
-        v = self.verdict_for(coin(att=20, pct24=7.0, mc=1e9, lo=1e5, sh=1e5),
-                             prev=coin(att=20))
-        self.assertIs(v.reading, Reading.QUIET_ACCUMULATION)
+    def test_quiet_accumulation_needs_measured_quiet_not_merely_unmeasured(self):
+        """Outperforming while on the most-visited list is not quiet accumulation."""
+        on_the_list = self.verdict_for(coin(att=20, pct24=7.0, mc=1e9, lo=1e5, sh=1e5),
+                                       prev=coin(att=20))
+        self.assertIsNot(on_the_list.reading, Reading.QUIET_ACCUMULATION)
+
+        # absent from a list that WAS readable is a measurement of low interest
+        absent = self.verdict_for(coin(att=None, att_avail=True, pct24=7.0,
+                                       mc=1e9, lo=1e5, sh=1e5))
+        self.assertIs(absent.reading, Reading.QUIET_ACCUMULATION)
+
+    def test_a_stablecoin_is_not_read_on_a_relative_price_measure(self):
+        """Every peg underperforms a rising market. That is not capitulation."""
+        v = self.verdict_for(coin(sym="FDUSD", pct24=0.0, stable=True), prev=None)
+        self.assertIs(v.reading, Reading.NOTHING)
+        self.assertIn("Stablecoin", v.why)
 
     def test_confidence_is_withheld_without_the_attention_stream(self):
         # exactly today's situation: Basic tier, attention gated, turnover standing in

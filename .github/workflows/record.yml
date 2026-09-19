@@ -1,34 +1,39 @@
 name: record
 
-# Every 15 minutes on the free Basic tier (~480 credits/day against a 15,000 cap).
-# Drop to */5 once the Startup upgrade lands and the cap becomes 450,000.
+# The schedule only STARTS a job. The job then holds itself open and snapshots on its own
+# clock - see recorder/loop.py for why cron alone produced four snapshots in nine hours.
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "0 */3 * * *"
   workflow_dispatch:
+    inputs:
+      interval_s:
+        description: "Seconds between snapshots"
+        required: false
+        default: "600"
 
 permissions:
   contents: write
 
+# A newer run replaces an older one, so a late trigger costs nothing.
 concurrency:
   group: record
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
-      - name: Take snapshot
-        env:
-          CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
-        run: python3 recorder/record.py
-      - name: Commit
+      - name: Identify the recorder
         run: |
           git config user.name  "crowdtape-recorder"
           git config user.email "recorder@users.noreply.github.com"
-          git add data/
-          git diff --staged --quiet && echo "nothing new" && exit 0
-          git commit -m "snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
-          git pull --rebase --autostash origin main || true
-          git push
+      - name: Snapshot continuously
+        env:
+          CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
+          # 600s costs ~720 credits a day against the Basic tier's 15,000 a month.
+          # Drop it once the Startup upgrade lands and the ceiling becomes 450,000.
+          SNAPSHOT_INTERVAL_S: ${{ github.event.inputs.interval_s || '600' }}
+        run: python3 recorder/loop.py
