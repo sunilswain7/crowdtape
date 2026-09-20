@@ -27,7 +27,8 @@ if not KEY:
     sys.exit("CMC_API_KEY not set.  Run:  CMC_API_KEY=your-key python3 scripts/probe.py")
 
 BASE = "https://pro-api.coinmarketcap.com"
-OUT = pathlib.Path(__file__).resolve().parent.parent / "probe-output"
+OUT = pathlib.Path(os.environ.get("PROBE_OUT_DIR")
+                   or pathlib.Path(__file__).resolve().parent.parent / "probe-output")
 OUT.mkdir(exist_ok=True)
 
 TIERS = {15000: "Basic (free)", 150000: "Builder $29", 450000: "Startup $79",
@@ -238,16 +239,6 @@ for path, candidates in SWEEPS.items():
         if ok:
             break
 
-if sweep_report:
-    lines += ["", "## Parameter sweep", "",
-              "A 400 means the path exists and the plan allows it - only the parameters were",
-              "wrong. These were tried against the live API rather than guessed from docs.", "",
-              "| Path | Parameters | HTTP | Result |", "|---|---|---|---|"]
-    for sr in sweep_report:
-        lines.append(f"| `{sr['path']}` | `{sr['params']}` | {sr['http']} | "
-                     f"**{sr['verdict']}** {sr['msg']} |")
-    (DOCS / "endpoint-access.md").write_text("\n".join(lines))
-
 raw = OUT / f"probe-{time.strftime('%Y%m%dT%H%M%S')}.json"
 raw.write_text(json.dumps(results, indent=2, default=str))
 print(f"\nFull raw responses saved to {raw}")
@@ -257,7 +248,8 @@ print(f"\nFull raw responses saved to {raw}")
 # place for the one fact the whole project depends on. This writes the findings to
 # tracked files instead, so the measured access table is public, diffable, and
 # re-checkable by anyone - including a judge.
-DOCS = pathlib.Path(__file__).resolve().parent.parent / "docs"
+DOCS = pathlib.Path(os.environ.get("PROBE_DOCS_DIR")
+                    or pathlib.Path(__file__).resolve().parent.parent / "docs")
 DOCS.mkdir(exist_ok=True)
 
 def shape_lines(node, depth=0, out=None, limit=60):
@@ -305,6 +297,17 @@ lines += [
     "Reading the HTTP status alone records imaginary endpoints as working.",
     "",
 ]
+if sweep_report:
+    lines += ["", "## Parameter sweep", "",
+              "A 400 means the path exists and the plan allows it - only the parameters",
+              "were wrong. These were tried against the live API rather than guessed from",
+              "documentation.", "",
+              "| Path | Parameters | HTTP | Result | What the API said |",
+              "|---|---|---|---|---|"]
+    for sr in sweep_report:
+        lines.append(f"| `{sr['path']}` | `{sr['params']}` | {sr['http']} | "
+                     f"**{sr['verdict']}** | {sr['msg'] or ''} |")
+
 (DOCS / "endpoint-access.md").write_text("\n".join(lines))
 
 shapes = ["# Payload shapes, observed", "",
