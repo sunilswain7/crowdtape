@@ -36,4 +36,8 @@ jobs:
           # 600s costs ~720 credits a day against the Basic tier's 15,000 a month.
           # Drop it once the Startup upgrade lands and the ceiling becomes 450,000.
           SNAPSHOT_INTERVAL_S: ${{ github.event.inputs.interval_s || '600' }}
+          # The 3-hourly trigger cancels the running job, so anything uncommitted dies
+          # with it. Measured: four gaps of 20-24 min on 19 Sep. One commit per snapshot
+          # costs nothing and bounds the loss at zero.
+          COMMIT_EVERY: "1"
         run: python3 recorder/loop.py

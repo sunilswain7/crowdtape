@@ -60,6 +60,16 @@ PROBES = [
     ("rwa",      "rwa assets list",     "/v5/real-world-assets/assets/list", {"limit":"5"}),
     ("rwa",      "rwa quotes",          "/v5/real-world-assets/quotes/latest", {"limit":"5"}),
 
+    # DEX. If attention stays plan-gated, holder counts are the only crowd measurement
+    # left that is an actual measurement rather than a proxy: how many distinct wallets
+    # hold a token, and which way that is moving.
+    ("DEX",      "platform list",       "/v1/dex/platform/list", {"limit": "5"}),
+    ("DEX",      "spot pairs latest",   "/v4/dex/spot-pairs/latest", {"limit": "3"}),
+    ("DEX",      "holders count",       "/v1/dex/holders/count",
+     {"contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f", "network_id": "1"}),
+    ("DEX",      "holders trend",       "/v1/dex/holders/trend/list",
+     {"contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f", "network_id": "1"}),
+
     ("gated",    "community trending",  "/v1/community/trending/token", {}),
     ("gated",    "content latest",      "/v1/content/latest", {"limit":"2"}),
 
