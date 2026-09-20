@@ -190,6 +190,64 @@ else:
         print(f"   {r['http']} {r['verdict']} {r['msg']}")
     print("\nFall back to the positioning axis (/v5 derivatives) and escalate the tier.")
 
+# --- parameter sweep -------------------------------------------------------
+# A 400 means the path is real and reachable on this plan and only the parameters were
+# wrong, which is a far better problem than a 403. Rather than guess from documentation
+# the developer's ISP blocks, ask the API: try the plausible spellings and report which
+# one answered. A few credits buys certainty.
+SWEEPS = {
+    "/v1/dex/holders/count": [
+        {"contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f", "network_id": "1"},
+        {"contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f", "network_slug": "ethereum"},
+        {"address": "0x6b175474e89094c44da98b954eedeac495271d0f", "network_id": "1"},
+        {"contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f"},
+        {"token_address": "0x6b175474e89094c44da98b954eedeac495271d0f", "network_id": "1"},
+    ],
+    "/v4/dex/spot-pairs/latest": [
+        {"network_slug": "ethereum", "limit": "2"},
+        {"network_id": "1", "limit": "2"},
+        {"limit": "2", "sort": "volume_24h"},
+        {"network_slug": "ethereum", "limit": "2", "sort": "volume_24h"},
+    ],
+    "/v5/cryptocurrency/derivatives/market-pairs/list/latest": [
+        {"symbol": "BTC", "convert": "USD"},
+        {"id": "1"},
+        {"slug": "bitcoin"},
+        {"symbol": "BTC", "limit": "5"},
+    ],
+    "/v5/real-world-assets/quotes/latest": [
+        {"id": "1"}, {"symbol": "NVDAX"}, {"slug": "nvidia"},
+        {"limit": "5", "convert": "USD"},
+    ],
+}
+
+sweep_report = []
+for path, candidates in SWEEPS.items():
+    if not any(r["path"] == path and r["verdict"] == "bad-params" for r in results):
+        continue
+    print(f"\nsweeping {path}")
+    for params in candidates:
+        r = call(path, params)
+        ok = r["verdict"] == "OK"
+        print(f"   {'HIT ' if ok else '    '}{params}  ->  {r['http']} {r['verdict']} {r['msg']}")
+        sweep_report.append({"path": path, "params": params, "http": r["http"],
+                             "verdict": r["verdict"], "msg": r["msg"],
+                             "body": r["body"] if ok else None})
+        results.append({**r, "group": "sweep", "label": f"sweep {list(params)}", "path": path})
+        time.sleep(0.25)
+        if ok:
+            break
+
+if sweep_report:
+    lines += ["", "## Parameter sweep", "",
+              "A 400 means the path exists and the plan allows it - only the parameters were",
+              "wrong. These were tried against the live API rather than guessed from docs.", "",
+              "| Path | Parameters | HTTP | Result |", "|---|---|---|---|"]
+    for sr in sweep_report:
+        lines.append(f"| `{sr['path']}` | `{sr['params']}` | {sr['http']} | "
+                     f"**{sr['verdict']}** {sr['msg']} |")
+    (DOCS / "endpoint-access.md").write_text("\n".join(lines))
+
 raw = OUT / f"probe-{time.strftime('%Y%m%dT%H%M%S')}.json"
 raw.write_text(json.dumps(results, indent=2, default=str))
 print(f"\nFull raw responses saved to {raw}")
@@ -229,13 +287,14 @@ lines = [
     f"**Plan:** `{tier or 'unknown'}`"
     + (f", credit_limit_monthly {limit_val}" if limit_val else ""),
     "",
-    "| Group | Endpoint | Path | HTTP | Verdict |",
-    "|---|---|---|---|---|",
+    "| Group | Endpoint | Path | HTTP | Verdict | What the API said |",
+    "|---|---|---|---|---|---|",
 ]
 for r in results:
     if r["group"] == "control":
         continue
-    lines.append(f"| {r['group']} | {r['label']} | `{r['path']}` | {r['http']} | **{r['verdict']}** |")
+    lines.append(f"| {r['group']} | {r['label']} | `{r['path']}` | {r['http']} | "
+                 f"**{r['verdict']}** | {r['msg'] or ''} |")
 
 controls_ok = all(c["verdict"] == "PATH-ABSENT" for c in ctrl)
 lines += [
