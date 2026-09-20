@@ -28,6 +28,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 INTERVAL = int(os.environ.get("SNAPSHOT_INTERVAL_S", "600"))
 DURATION = int(os.environ.get("LOOP_DURATION_S", str(5 * 3600 + 40 * 60)))
 COMMIT_EVERY = int(os.environ.get("COMMIT_EVERY", "3"))
+HOLDERS_EVERY = int(os.environ.get("HOLDERS_EVERY", "18"))   # 18 x 10 min = 3 hours
 
 
 def run(*args: str) -> tuple[int, str]:
@@ -58,7 +59,13 @@ print(f"looping for {DURATION//60} min, one snapshot every {INTERVAL}s", flush=T
 
 while time.time() - started < DURATION:
     cycle = time.time()
-    code, out = run(sys.executable, "recorder/record.py")
+    # Wallet counts move over hours, and each one costs a credit. Poll them on a slow
+    # cycle rather than every snapshot - see recorder/record.py for the arithmetic.
+    holders = (taken % HOLDERS_EVERY == 0)
+    env = dict(os.environ, CROWDTAPE_HOLDERS="1" if holders else "0")
+    p = subprocess.run([sys.executable, "recorder/record.py"], cwd=ROOT,
+                       capture_output=True, text=True, env=env)
+    code, out = p.returncode, (p.stdout + p.stderr).strip()
     if code == 0:
         taken += 1
         since_commit += 1

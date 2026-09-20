@@ -25,10 +25,28 @@ if not KEY:
 
 BASE = "https://pro-api.coinmarketcap.com"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DATA = ROOT / "data"
+DATA = pathlib.Path(os.environ.get("CROWDTAPE_DATA_DIR") or ROOT / "data")
 DATA.mkdir(exist_ok=True)
 
 UNIVERSE = 200  # listings/latest is priced per 200 data points, so this costs 1 credit
+
+# --- holder counts ----------------------------------------------------------
+# `/v1/dex/holders/count` is how many distinct wallets hold a token. It is the only
+# actual measurement of crowd size reachable on this plan - not a proxy like turnover -
+# and CoinMarketCap gates `/v1/dex/holders/trend/list` (403, measured), so the series
+# does not exist anywhere unless somebody records the counts. That is the whole idea.
+#
+# It costs 1 credit per token and 137 of the top 200 carry a contract address, so polling
+# them all every ten minutes would be 19,728 credits a day against a 15,000/month ceiling.
+# Wallet counts move over hours, not minutes, so they are polled on a slow cycle instead:
+# HOLDERS_N tokens every HOLDERS_EVERY snapshots. 50 tokens every 18 cycles (3 hours) is
+# 400 credits a day, inside the 603/day that is spare after the main recorder.
+#
+# Parameter names are `platform` and `tokenAddress`, camelCase where the rest of the API
+# is snake_case. Five snake_case spellings returned a bare "Missing required parameter";
+# these came from a working call in a public repository and were then verified live.
+HOLDERS_N = int(os.environ.get("HOLDERS_N", "50"))
+RATE_SLEEP = 1.3   # 50 requests/minute on Basic, measured from /v1/key/info
 
 
 # axis: what each stream feeds. tier: lowest plan that can call it.
@@ -47,7 +65,10 @@ STREAMS = [
 
     # --- PRICE + CONTEXT. Works on Basic. The baseline every signal is measured against. ---
     ("price",       "listings",         "GET", "/v1/cryptocurrency/listings/latest",
-     {"limit": str(UNIVERSE), "convert": "USD", "aux": "cmc_rank,tags"}),
+     {"limit": str(UNIVERSE), "convert": "USD", # Measured: naming any aux field drops `platform`, and `platform` is where the
+     # contract address lives that the holder pass needs. `tags` returns with or
+     # without aux, so the only reason this parameter exists is to keep platform.
+     "aux": "cmc_rank,tags,platform"}),
     ("context",     "global",           "GET", "/v1/global-metrics/quotes/latest", {}),
     ("context",     "fear_greed",       "GET", "/v3/fear-and-greed/latest", {}),
 ]
@@ -106,7 +127,10 @@ def thin(stream, data):
         for c in data:
             q = (c.get("quote", {}) or {}).get("USD", {}) or {}
             tags = c.get("tags")
+            pf = c.get("platform") or {}
             out.append({"id": c.get("id"), "s": c.get("symbol"), "r": c.get("cmc_rank"),
+                        # chain slug and contract address, for the holder pass
+                        "pf": pf.get("slug"), "ca": pf.get("token_address"),
                         # None distinguishes "not a stablecoin" from "tags not returned"
                         "st": ("stablecoin" in tags) if isinstance(tags, list) else None,
                         "p": _r(q.get("price")), "mc": _r(q.get("market_cap")),
@@ -191,6 +215,32 @@ for axis, name, method, path, params in STREAMS:
     status = "ok" if r["http"] == 200 and "error" not in r else r.get("error", "?")
     print(f"  {name:<20} {r['http']:<5} {status}")
     time.sleep(0.2)
+
+# --- holder pass, on the slow cycle ----------------------------------------
+if os.environ.get("CROWDTAPE_HOLDERS") == "1":
+    listings = (snapshot["streams"].get("listings") or {}).get("data") or []
+    targets = [c for c in listings if c.get("pf") and c.get("ca")][:HOLDERS_N]
+    rows, misses = [], {}
+    print(f"\n  holder pass: {len(targets)} tokens")
+    for c in targets:
+        r = call("/v1/dex/holders/count",
+                 {"platform": c["pf"], "tokenAddress": c["ca"]})
+        total_credits += r.get("credits") or 0
+        if r["http"] == 200 and isinstance(r.get("data"), dict):
+            n = r["data"].get("count")
+            rows.append({"id": c["id"], "s": c["s"], "pf": c["pf"],
+                         "n": int(n) if n is not None else None})
+        else:
+            # Not every chain CoinMarketCap lists is a chain its DEX index covers -
+            # hyperliquid answers "Parameter error". Record which, rather than dropping it.
+            misses[c["s"]] = r.get("error", f"http {r['http']}")[:60]
+        time.sleep(RATE_SLEEP)
+    out_h = DATA / f"holders-{stamp:%Y-%m-%d}.jsonl"
+    with out_h.open("a") as f:
+        f.write(json.dumps({"at": stamp.isoformat(), "holders": rows,
+                            "unavailable": misses}, separators=(",", ":")) + "\n")
+    print(f"  holders: {len(rows)} recorded, {len(misses)} unavailable "
+          f"-> {out_h.name}")
 
 snapshot["credits"] = total_credits
 out = DATA / f"{stamp:%Y-%m-%d}.jsonl"

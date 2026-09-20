@@ -40,4 +40,9 @@ jobs:
           # with it. Measured: four gaps of 20-24 min on 19 Sep. One commit per snapshot
           # costs nothing and bounds the loss at zero.
           COMMIT_EVERY: "1"
+          # Wallet counts on a slow cycle: 50 tokens every 18 snapshots (3 hours) is
+          # 400 credits/day on top of the recorder's 720, inside the measured budget of
+          # 14,111 credits and 10.7 days.
+          HOLDERS_N: "50"
+          HOLDERS_EVERY: "18"
         run: python3 recorder/loop.py
