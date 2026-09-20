@@ -197,24 +197,29 @@ else:
 # the developer's ISP blocks, ask the API: try the plausible spellings and report which
 # one answered. A few credits buys certainty.
 SWEEPS = {
+    # Every spelling tried so far returns a bare "Missing required parameter." with no
+    # hint which one. Naming conventions borrowed from the endpoints that DO answer.
     "/v1/dex/holders/count": [
-        {"contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f", "network_id": "1"},
-        {"contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f", "network_slug": "ethereum"},
-        {"address": "0x6b175474e89094c44da98b954eedeac495271d0f", "network_id": "1"},
-        {"contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f"},
-        {"token_address": "0x6b175474e89094c44da98b954eedeac495271d0f", "network_id": "1"},
+        {"token_id": "1", "network_id": "1"},
+        {"crypto_id": "1"},
+        {"contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f",
+         "network_id": "1", "scroll_id": ""},
+        {"asset_id": "1", "network_id": "1"},
+        {"base_asset_contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f",
+         "network_id": "1"},
     ],
+    # It wants a network AND a dex, and says so one at a time.
     "/v4/dex/spot-pairs/latest": [
-        {"network_slug": "ethereum", "limit": "2"},
-        {"network_id": "1", "limit": "2"},
-        {"limit": "2", "sort": "volume_24h"},
-        {"network_slug": "ethereum", "limit": "2", "sort": "volume_24h"},
+        {"network_slug": "ethereum", "dex_slug": "uniswap-v3", "limit": "2"},
+        {"network_slug": "ethereum", "dex_slug": "uniswap_v3", "limit": "2"},
+        {"network_id": "1", "dex_id": "1348", "limit": "2"},
     ],
+    # The API named these itself: "'value' must contain at least one of
+    # [crypto_id, crypto_symbol, crypto_slug]". Not a guess - its own error message.
     "/v5/cryptocurrency/derivatives/market-pairs/list/latest": [
-        {"symbol": "BTC", "convert": "USD"},
-        {"id": "1"},
-        {"slug": "bitcoin"},
-        {"symbol": "BTC", "limit": "5"},
+        {"crypto_symbol": "BTC", "convert": "USD"},
+        {"crypto_id": "1"},
+        {"crypto_slug": "bitcoin"},
     ],
     "/v5/real-world-assets/quotes/latest": [
         {"id": "1"}, {"symbol": "NVDAX"}, {"slug": "nvidia"},
