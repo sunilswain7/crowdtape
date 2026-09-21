@@ -1,0 +1,4 @@
+# Generated from data/ by `python3 -m engine.report`. The recorder rewrites them on every
+# commit, so a local run and a CI run conflict on every line. They are never merged by
+# hand: regenerate instead. Marked non-diffable to keep the noise out of reviews.
+site/data/*.json -diff linguist-generated
