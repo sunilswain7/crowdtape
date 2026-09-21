@@ -16,7 +16,7 @@ Stdlib only. Long-polls, so it needs no public URL and no webhook.
     TELEGRAM_BOT_TOKEN=... python3 bot/telegram.py
 """
 from __future__ import annotations
-import hashlib, json, os, pathlib, sys, time, urllib.parse, urllib.request
+import hashlib, json, os, pathlib, subprocess, sys, time, urllib.parse, urllib.request
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
@@ -28,6 +28,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 USAGE = pathlib.Path(os.environ.get("CROWDTAPE_DATA_DIR") or ROOT / "data") / "bot-usage.jsonl"
 DURATION = int(os.environ.get("BOT_DURATION_S", str(5 * 3600 + 40 * 60)))
 CACHE_TTL = 120
+COMMIT_EVERY_S = int(os.environ.get("BOT_COMMIT_EVERY_S", "600"))
 
 READING = {
     "loaded_spring":      "🔵 Loaded spring",
@@ -81,6 +82,27 @@ def log(chat: int, command: str):
     with USAGE.open("a") as f:
         f.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                             "user": who, "command": command}) + "\n")
+
+
+def commit_usage():
+    """Push the usage counts as they accrue.
+
+    The workflow's concurrency rule cancels this job every three hours, and a cancelled
+    job never reaches its post-run steps - so committing only at the end would throw away
+    every message served in that window. Usage evidence is the one thing here that cannot
+    be regenerated from anything, so it is pushed as it happens.
+    """
+    if not USAGE.exists():
+        return
+    for args in (["git", "add", str(USAGE)],
+                 ["git", "commit", "-m",
+                  f"bot usage {time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime())}"],
+                 ["git", "pull", "--rebase", "--autostash", "origin", "main"],
+                 ["git", "push", "origin", "HEAD:main"]):
+        r = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
+        if args[1] == "commit" and r.returncode != 0:
+            return          # nothing new staged
+    print("  usage pushed", flush=True)
 
 
 def pct(v, dp=2):
@@ -246,6 +268,7 @@ def main():
         {"command": "why", "description": "What the four readings mean"},
     ])
     started, offset, served = time.time(), None, 0
+    last_commit, pending = time.time(), 0
     while time.time() - started < DURATION:
         r = tg("getUpdates", offset=offset, timeout=50,
                allowed_updates=["message"])
@@ -254,7 +277,13 @@ def main():
             if "message" in upd:
                 handle(upd["message"])
                 served += 1
+                pending += 1
                 print(f"  served {served}", flush=True)
+        if pending and time.time() - last_commit > COMMIT_EVERY_S:
+            commit_usage()
+            last_commit, pending = time.time(), 0
+    if pending:
+        commit_usage()
     print(f"done: {served} messages in {(time.time()-started)/60:.0f} min", flush=True)
 
 
