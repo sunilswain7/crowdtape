@@ -182,6 +182,14 @@ a fellow entrant who documented it after losing two days to it.*
 The API key. `.env` is gitignored and `.env.example` shows the shape. The hackathon rules
 are explicit that a committed key counts against code quality.
 
+## Where the API got in the way
+
+[`FEEDBACK.md`](FEEDBACK.md) — eight findings, all measured against a live key rather than
+read from documentation, with the reproduction for each. The short version: the two
+datasets CoinMarketCap has that nobody else does are the two it does not retain, a path
+that does not exist answers HTTP 200, and naming any `aux` field silently drops
+`platform`.
+
 ## Licence
 
 MIT.
