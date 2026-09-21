@@ -5,6 +5,9 @@
 Built for the [Build with CMC: API Hackathon](https://dorahacks.io/hackathon/coinmarketcap-api-202609/detail).
 Track: **Markets and Trading Tools**.
 
+**[Live board](https://sunilswain7.github.io/crowdtape/)** ·
+**[@crowdtape_bot](https://t.me/crowdtape_bot)** on Telegram
+
 ---
 
 ## The problem
@@ -109,6 +112,8 @@ someone actually checks the market from.
 It **never calls CoinMarketCap.** It reads the JSON the recorder already publishes, so it
 holds no API key, spends no credits, and cannot drift from the board — if the site says a
 thing, so does the bot, because it is the same file.
+
+Talk to it: **[@crowdtape_bot](https://t.me/crowdtape_bot)**
 
 ```
 /board   what is carrying a reading right now

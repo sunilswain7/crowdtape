@@ -24,6 +24,7 @@ if not TOKEN:
 
 API = f"https://api.telegram.org/bot{TOKEN}"
 SITE = os.environ.get("CROWDTAPE_SITE", "https://sunilswain7.github.io/crowdtape")
+HANDLE = os.environ.get("CROWDTAPE_HANDLE", "@crowdtape_bot")
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 USAGE = pathlib.Path(os.environ.get("CROWDTAPE_DATA_DIR") or ROOT / "data") / "bot-usage.jsonl"
 DURATION = int(os.environ.get("BOT_DURATION_S", str(5 * 3600 + 40 * 60)))

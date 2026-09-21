@@ -52,6 +52,8 @@ h1{font-size:30px}
 button{font:inherit;color:inherit;cursor:pointer}
 .ghost{background:var(--surface-1);border:1px solid var(--line-strong);border-radius:8px;padding:7px 12px}
 .ghost:hover{background:var(--surface-2)}
+a.ghost{text-decoration:none;display:inline-block}
+.tgbtn{border-color:var(--spring);color:var(--spring)}
 .banner{
   margin-top:20px;padding:12px 14px;border-radius:10px;border:1px solid var(--line-strong);
   background:var(--surface-1);color:var(--text-secondary);font-size:14px;
@@ -123,6 +125,8 @@ footer code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-s
       <div class="tag">The tape is what happened. The crowd is what happens next.</div>
     </div>
     <div class="spacer"></div>
+    <a class="ghost tgbtn" href="https://t.me/crowdtape_bot" target="_blank"
+       rel="noopener">Ask it on Telegram</a>
     <button class="ghost" id="theme" aria-label="Switch colour theme">Theme</button>
   </div>
   <div class="banner" id="banner"></div>
@@ -188,6 +192,11 @@ footer code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-s
 
 <footer>
   <p id="prov"></p>
+  <p>
+    The same readings answer on Telegram at
+    <a href="https://t.me/crowdtape_bot"><strong>@crowdtape_bot</strong></a> —
+    <code>/board</code>, <code>/coin BTC</code>, <code>/score</code>.
+  </p>
   <p>
     Built on the CoinMarketCap API for the Build with CMC hackathon.
     Every number is reproducible: <code>python3 -m engine.report</code> regenerates this
