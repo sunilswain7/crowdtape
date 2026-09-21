@@ -44,6 +44,10 @@ class CoinState:
     # None means CoinMarketCap did not return tags on this snapshot, which is not the
     # same as "not a stablecoin" and must not be treated as it.
     is_stablecoin: bool | None = None
+    # Distinct wallets holding the token, and the change since the previous holder pass.
+    # This is the crowd axis: an actual count of holders rather than a proxy for interest.
+    wallet_count: int | None = None
+    wallet_growth: float | None = None
     # positioning, in USD. 1h is the sharper read - at a ten-minute snapshot interval a
     # 24h window is mostly yesterday - but both are kept because 24h gives the context
     # that says whether an hour was unusual.
@@ -95,7 +99,8 @@ def _ident(d: dict) -> tuple[int | None, str | None]:
     return cid, (str(sym).upper() if sym else None)
 
 
-def from_snapshot(snap: dict) -> tuple[list[CoinState], dict[str, str]]:
+def from_snapshot(snap: dict,
+                  holders: "HolderSeries | None" = None) -> tuple[list[CoinState], dict[str, str]]:
     """One snapshot line -> (canonical records, notes about what could not be read)."""
     at = snap.get("at", "")
     streams = snap.get("streams", {}) or {}
@@ -158,9 +163,12 @@ def from_snapshot(snap: dict) -> tuple[list[CoinState], dict[str, str]]:
     elif lq:
         notes["liquidations"] = f"unrecognised shape: {list(lq)[:4]}"
 
+    wallets = holders.at(at) if holders else {}
+
     out = []
     for cid, m in by_id.items():
         l1, s1, l24, s24 = liq.get(cid, (None, None, None, None))
+        wc, wg = wallets.get(cid, (None, None))
         out.append(CoinState(at=at, coin_id=cid, symbol=m["symbol"],
                              price=m["price"], market_cap=m["market_cap"],
                              volume_24h=m["volume_24h"], rank=m["rank"],
@@ -168,15 +176,66 @@ def from_snapshot(snap: dict) -> tuple[list[CoinState], dict[str, str]]:
                              attention_rank=att.get(cid),
                              attention_available=attention_available,
                              is_stablecoin=m["st"],
+                             wallet_count=wc, wallet_growth=wg,
                              liq_long_1h=l1, liq_short_1h=s1,
                              liq_long_24h=l24, liq_short_24h=s24))
     return out, notes
 
 
-def load(path: str | pathlib.Path) -> Iterable[tuple[list[CoinState], dict]]:
+class HolderSeries:
+    """Wallet counts over time, and the growth between consecutive passes.
+
+    Counts are recorded every three hours while snapshots are every ten minutes, so a
+    snapshot is matched to the most recent pass at or before it. Growth is measured
+    against the pass before that one - never against a partial or future reading, which
+    would leak information backwards into a signal the scorecard then grades.
+    """
+
+    def __init__(self, passes: list[tuple[str, dict[int, int]]]):
+        self.passes = sorted(passes, key=lambda p: p[0])
+
+    @classmethod
+    def load(cls, data_dir: str | pathlib.Path) -> "HolderSeries":
+        passes = []
+        for f in sorted(pathlib.Path(data_dir).glob("holders-*.jsonl")):
+            for line in f.read_text().splitlines():
+                if not line.strip():
+                    continue
+                rec = json.loads(line)
+                counts = {int(h["id"]): int(h["n"])
+                          for h in rec.get("holders", []) if h.get("n")}
+                if counts:
+                    passes.append((rec["at"], counts))
+        return cls(passes)
+
+    def _index_at(self, at: str) -> int:
+        lo = -1
+        for i, (t, _) in enumerate(self.passes):
+            if t <= at:
+                lo = i
+            else:
+                break
+        return lo
+
+    def at(self, at: str) -> dict[int, tuple[int, float | None]]:
+        """{coin_id: (count, growth_since_previous_pass)} as of this instant."""
+        i = self._index_at(at)
+        if i < 0:
+            return {}
+        _, now = self.passes[i]
+        prev = self.passes[i - 1][1] if i > 0 else {}
+        out = {}
+        for cid, n in now.items():
+            was = prev.get(cid)
+            out[cid] = (n, (n - was) / was if was else None)
+        return out
+
+
+def load(path: str | pathlib.Path,
+         holders: HolderSeries | None = None) -> Iterable[tuple[list[CoinState], dict]]:
     for line in pathlib.Path(path).read_text().splitlines():
         if line.strip():
-            yield from_snapshot(json.loads(line))
+            yield from_snapshot(json.loads(line), holders)
 
 
 if __name__ == "__main__":

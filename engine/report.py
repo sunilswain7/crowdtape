@@ -13,9 +13,9 @@ Writes site/data/{latest,events,scorecard}.json
 from __future__ import annotations
 import collections, datetime, json, pathlib, statistics, sys
 
-from .normalize import load, CoinState
+from .normalize import load, CoinState, HolderSeries
 from .signal import classify, Reading
-from .events import HORIZONS_H, detect, score, scorecard
+from .events import DIRECTION, HORIZONS_H, detect, score, scorecard, verdict
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "site" / "data"
@@ -27,13 +27,15 @@ def _ts(s: str) -> datetime.datetime:
 
 
 def build():
-    files = sorted((ROOT / "data").glob("*.jsonl"))
+    files = sorted(f for f in (ROOT / "data").glob("*.jsonl")
+                   if not f.name.startswith("holders-"))
     if not files:
         sys.exit("no data recorded yet")
 
+    holders = HolderSeries.load(ROOT / "data")
     snapshots: list[tuple[str, list[CoinState], dict]] = []
     for f in files:
-        for states, notes in load(f):
+        for states, notes in load(f, holders):
             if states:
                 snapshots.append((states[0].at, states, notes))
     snapshots.sort(key=lambda x: x[0])
@@ -93,6 +95,7 @@ def build():
             "attention": v.attention.value, "leverage": v.leverage.value,
             "why": v.why, "confident": v.confident,
             "attention_rank": s.attention_rank,
+            "wallet_count": s.wallet_count, "wallet_growth": s.wallet_growth,
             "liq_long_24h": s.liq_long_24h, "liq_short_24h": s.liq_short_24h,
         })
 
@@ -105,6 +108,8 @@ def build():
         # Stated on the page, not hidden in a footnote: every reading is weaker while
         # this is false, and the page says so rather than implying a signal it lacks.
         "attention_available": any(s.attention_available for s in states),
+        "wallets_covered": sum(1 for s in states if s.wallet_growth is not None),
+        "holder_passes": len(holders.passes),
         "unavailable": notes,
         "rows": rows,
     }, separators=(",", ":"), default=str))
@@ -156,14 +161,27 @@ def build():
     (OUT / "series.json").write_text(json.dumps(series, separators=(",", ":"), default=str))
 
     cards = scorecard(scores)
+    by_reading = collections.defaultdict(list)
+    for sc in scores:
+        by_reading[sc.event.reading].append(sc)
+    verdicts = {}
+    for reading, group in by_reading.items():
+        v, why = verdict(reading, group)
+        verdicts[reading.value] = {"verdict": v, "why": why, "n": len(group)}
+
     (OUT / "scorecard.json").write_text(json.dumps({
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "events_total": len(events),
         "events_graded": len({(s.event.coin_id, s.event.opened_at) for s in scores
                               if s.hit is not None}),
+        "verdicts": verdicts,
         "cards": [{"reading": c.reading.value, "horizon_h": c.horizon_h, "n": c.n,
                    "graded": c.graded, "hits": c.hits, "hit_rate": c.hit_rate,
-                   "mean_excess": c.mean_excess} for c in cards],
+                   "mean_excess": c.mean_excess,
+                   # What the reading claims: +1 expects outperformance, -1 expects
+                   # underperformance, 0 claims nothing. Without it the page would
+                   # colour a failed bearish call green for being a positive number.
+                   "direction": DIRECTION.get(c.reading, 0)} for c in cards],
     }, separators=(",", ":"), default=str))
 
     print(f"{len(snapshots)} snapshots -> {len(events)} events, "

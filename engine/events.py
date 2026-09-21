@@ -124,6 +124,41 @@ class Card:
                 f"mean excess {self.mean_excess:+.2%}")
 
 
+# A reading is a hypothesis. These thresholds decide when the record is enough to call
+# it, and they are deliberately visible: a verdict nobody can check is an opinion.
+MIN_TO_JUDGE = 40           # graded readings before the record says anything at all
+SUPPORT_HIT = 0.55          # hit rate above which the claim is carrying its weight
+REJECT_HIT = 0.45           # and below which the data is arguing with it
+MATERIAL_EXCESS = 0.005     # 0.5 pt of mean excess, below which it is noise either way
+
+
+def verdict(reading: Reading, scores: list[Score]) -> tuple[str, str]:
+    """What the record says about a reading, in plain words. Returns (verdict, why).
+
+    `evidence` is the mean excess return signed by what the reading claims, so a positive
+    number always means "the claim was right" regardless of which way it points. That
+    matters for exit_liquidity, which predicts underperformance: its assets going UP is
+    the claim failing, and a raw mean would read as success.
+    """
+    direction = DIRECTION.get(reading, 0)
+    if direction == 0:
+        return "not graded", "This reading claims no direction, so it takes no credit."
+    graded = [s for s in scores if s.hit is not None]
+    if len(graded) < MIN_TO_JUDGE:
+        return "too early", f"Only {len(graded)} graded; {MIN_TO_JUDGE} before calling it."
+    hit = sum(1 for g in graded if g.hit) / len(graded)
+    evidence = statistics.fmean([g.excess_return for g in graded]) * direction
+    if hit >= SUPPORT_HIT and evidence >= MATERIAL_EXCESS:
+        return "supported", (f"{hit:.0%} of {len(graded)} went the way it claimed, "
+                             f"worth {evidence:+.2%} of excess return.")
+    if hit <= REJECT_HIT and evidence <= -MATERIAL_EXCESS:
+        return "rejected", (f"Only {hit:.0%} of {len(graded)} went the way it claimed, and "
+                            f"they moved {-evidence:+.2%} the OTHER way. The claim is "
+                            f"backwards in the tape recorded so far.")
+    return "no edge", (f"{hit:.0%} of {len(graded)}, worth {evidence:+.2%}. "
+                       f"Indistinguishable from picking at random.")
+
+
 def scorecard(scores: list[Score]) -> list[Card]:
     """Aggregate by reading and horizon. Ungraded readings still report n, so a reading
     that is never graded cannot quietly vanish from the report."""

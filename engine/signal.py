@@ -26,8 +26,10 @@ from .normalize import CoinState
 # --- thresholds. Visible on purpose. --------------------------------------------
 PRICE_EXCESS_PCT = 2.0      # 24h move minus the universe median, in points
 ATTENTION_JUMP = 5          # places gained on the most-visited list to count as rising
-TURNOVER_Z = 1.5            # fallback: z-score of volume/mcap to count as rising
-TURNOVER_Z_QUIET = -0.5     # fallback: below this, interest is genuinely below average
+WALLET_PCTILE = 0.75        # wallet growth above this quartile of the covered set = rising
+WALLET_PCTILE_QUIET = 0.25  # below this quartile = genuinely quiet
+TURNOVER_Z = 1.5            # last resort: z-score of volume/mcap to count as rising
+TURNOVER_Z_QUIET = -0.5     # last resort: below this, interest is below average
 LIQ_STRESS_PCTILE = 0.75    # liquidations over market cap, ranked; above this quartile
                             # positioning counts as stressed rather than quiet
 LIQ_SKEW = 0.65             # share of liquidations on one side to call it lopsided
@@ -88,10 +90,18 @@ def classify_price(s: CoinState, universe_median_pct: float = 0.0) -> Price:
 
 
 def classify_attention(s: CoinState, prev: CoinState | None,
-                       turnover_z: float | None) -> Attention:
-    """Prefers the real signal - movement up the most-visited list - and falls back to
-    turnover only when the attention stream is unavailable. The fallback is a proxy for
-    'unusual interest', not the same measurement, and callers mark it low confidence."""
+                       turnover_z: float | None,
+                       wallet_band: tuple[float, float] | None = None) -> Attention:
+    """Three sources, in descending order of how directly they measure the crowd.
+
+    1. Movement up CoinMarketCap's most-visited list - people looking the asset up.
+       Plan-gated since this key was issued, so it has never once been available here.
+    2. **Wallet growth** - how fast the number of distinct holders is changing, ranked
+       against the other tokens measured in the same pass. This is a count of people,
+       not a proxy for them, which is why it outranks turnover and carries confidence.
+    3. Turnover - volume over market cap. A proxy for unusual interest, not a measurement
+       of it, so a verdict resting on it is marked unconfirmed.
+    """
     if s.attention_rank is not None:
         if prev is None or prev.attention_rank is None:
             return Attention.RISING      # appearing on the list at all is the event
@@ -102,6 +112,13 @@ def classify_attention(s: CoinState, prev: CoinState | None,
         # The list was readable and this asset is not on it. That is a measurement of
         # low interest, and it is the cleanest `quiet` this engine ever gets.
         return Attention.QUIET
+    if s.wallet_growth is not None and wallet_band is not None:
+        quiet_cut, rising_cut = wallet_band
+        if s.wallet_growth >= rising_cut:
+            return Attention.RISING
+        if s.wallet_growth <= quiet_cut:
+            return Attention.QUIET
+        return Attention.STEADY
     if turnover_z is not None:
         if turnover_z >= TURNOVER_Z:
             return Attention.RISING
@@ -161,6 +178,16 @@ def classify(states: list[CoinState],
              if s.pct_24h is not None and not s.is_stablecoin]
     median_move = statistics.median(moves) if len(moves) >= MIN_UNIVERSE else 0.0
 
+    # Wallet growth is ranked only against the tokens measured in the same pass - about
+    # fifty of the two hundred carry a contract address CoinMarketCap's DEX index covers.
+    # Ranking them against the whole universe would compare them with assets that have no
+    # reading at all.
+    growths = sorted(x.wallet_growth for x in states if x.wallet_growth is not None)
+    wallet_band = None
+    if len(growths) >= MIN_UNIVERSE:
+        wallet_band = (growths[int(len(growths) * WALLET_PCTILE_QUIET)],
+                       growths[int(len(growths) * WALLET_PCTILE)])
+
     intensities = sorted(s.liq_total_24h / s.market_cap for s in states
                          if s.market_cap and s.liq_total_24h)
     stress_cutoff = None
@@ -181,14 +208,16 @@ def classify(states: list[CoinState],
                                confident=False))
             continue
         p = classify_price(s, median_move)
-        a = classify_attention(s, prev, z_by_id.get(s.coin_id))
+        a = classify_attention(s, prev, z_by_id.get(s.coin_id), wallet_band)
         lev = classify_leverage(s, stress_cutoff)
         reading, why = _read(p, a, lev)
         out.append(Verdict(
             coin_id=s.coin_id, symbol=s.symbol, at=s.at, reading=reading,
             price=p, attention=a, leverage=lev, why=why,
-            # An attention reading derived from turnover is a proxy, and a missing
-            # leverage axis is a missing axis. Neither is dressed up as certainty.
-            confident=(s.attention_rank is not None and lev is not Leverage.UNKNOWN),
+            # Confidence means the crowd axis rests on a count of people - lookups or
+            # wallets - rather than on turnover standing in for them, and that the
+            # leverage axis was present at all.
+            confident=((s.attention_rank is not None or s.wallet_growth is not None)
+                       and lev is not Leverage.UNKNOWN),
         ))
     return out

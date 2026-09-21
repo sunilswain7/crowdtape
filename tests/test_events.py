@@ -112,3 +112,61 @@ class Scorecard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Verdicts(unittest.TestCase):
+    """The scorecard's plain-language call on each reading."""
+
+    def _scores(self, reading, n, hit_frac, excess):
+        """n graded scores, a fraction of which went the claimed way."""
+        from engine.events import DIRECTION
+        d = DIRECTION[reading]
+        out = []
+        for i in range(n):
+            # excess signed so that `hit_frac` of them agree with the claim
+            e = excess if i < n * hit_frac else -excess
+            out.append(score(ev(reading), 24, 100 * (1 + e * d), [0.0]))
+        return out
+
+    def test_a_working_reading_is_supported(self):
+        from engine.events import verdict
+        v, why = verdict(Reading.LOADED_SPRING,
+                         self._scores(Reading.LOADED_SPRING, 80, 0.65, 0.03))
+        self.assertEqual(v, "supported")
+        self.assertIn("65%", why)
+
+    def test_an_inverted_reading_is_rejected_not_quietly_passed(self):
+        from engine.events import verdict
+        v, why = verdict(Reading.EXIT_LIQUIDITY,
+                         self._scores(Reading.EXIT_LIQUIDITY, 80, 0.30, 0.03))
+        self.assertEqual(v, "rejected")
+        self.assertIn("OTHER way", why)
+
+    def test_a_coin_flip_is_called_a_coin_flip(self):
+        from engine.events import verdict
+        v, _ = verdict(Reading.QUIET_ACCUMULATION,
+                       self._scores(Reading.QUIET_ACCUMULATION, 80, 0.50, 0.0001))
+        self.assertEqual(v, "no edge")
+
+    def test_too_few_graded_withholds_judgement(self):
+        from engine.events import verdict
+        v, why = verdict(Reading.LOADED_SPRING,
+                         self._scores(Reading.LOADED_SPRING, 5, 1.0, 0.05))
+        self.assertEqual(v, "too early")
+        self.assertIn("before calling it", why)
+
+    def test_a_directionless_reading_is_never_judged(self):
+        from engine.events import verdict
+        v, _ = verdict(Reading.CAPITULATION,
+                       [score(ev(Reading.CAPITULATION), 24, 130.0, [0.0])] * 99)
+        self.assertEqual(v, "not graded")
+
+    def test_raw_returns_would_have_flattered_the_inverted_reading(self):
+        """exit_liquidity predicts underperformance. Its assets going UP is the claim
+        failing - a raw mean would read that as success. This pins the sign handling."""
+        import statistics
+        from engine.events import verdict
+        scores = self._scores(Reading.EXIT_LIQUIDITY, 80, 0.30, 0.03)
+        raw = statistics.fmean([s.excess_return for s in scores])
+        self.assertGreater(raw, 0, "raw excess is positive - looks like a win")
+        self.assertEqual(verdict(Reading.EXIT_LIQUIDITY, scores)[0], "rejected")
