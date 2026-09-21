@@ -51,7 +51,8 @@ as the work lands.
 | Signal engine (`engine/`) | ✅ built |
 | Event detection + scorecard | ✅ built |
 | Site data generator (`engine/report.py`) | ✅ built |
-| Dashboard (`site/`) | ✅ built, published from the repo |
+| Dashboard (`site/`) | ✅ [live](https://sunilswain7.github.io/crowdtape/) |
+| Telegram bot (`bot/`) | ✅ built |
 | Test suite | ✅ 38 tests, green in CI |
 | Telegram bot | not started |
 | MCP tool | not started |
@@ -99,6 +100,30 @@ classifier falls back to turnover - volume against market cap - as a proxy for u
 interest, and marks the verdict `confident=False`, because a proxy is not the same
 measurement. When an axis is missing entirely it reads `unknown` rather than a default.
 A gated stream is recorded as a 403 in the snapshot, not silently dropped.
+
+## The bot
+
+The dashboard is a page a judge opens once. The bot is the same readings in the place
+someone actually checks the market from.
+
+It **never calls CoinMarketCap.** It reads the JSON the recorder already publishes, so it
+holds no API key, spends no credits, and cannot drift from the board — if the site says a
+thing, so does the bot, because it is the same file.
+
+```
+/board   what is carrying a reading right now
+/coin    one asset in full, with its wallet count
+/score   whether these readings actually work
+/why     what the four readings mean
+```
+
+`/score` is the one that matters. It reports that one of the four readings is currently
+**rejected** by its own record, and `/coin` repeats that warning wherever that reading
+appears. A bot that quietly dropped the qualifier would be a more confident product and a
+less truthful one; there are tests pinning it.
+
+Usage is logged as a **hash of the chat id**, never the id itself, so the count of real
+people using it can be reported without publishing who they are.
 
 ## The dataset is the git history
 

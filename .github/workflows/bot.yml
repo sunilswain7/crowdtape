@@ -1,0 +1,36 @@
+name: bot
+
+# Long-polls Telegram, so no public URL and no webhook. The schedule only starts a job;
+# the job holds itself open, the same pattern the recorder uses and for the same reason.
+on:
+  schedule:
+    - cron: "5 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bot
+  cancel-in-progress: true
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - name: Serve Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: python3 bot/telegram.py
+      - name: Commit usage counts
+        if: always()
+        run: |
+          git config user.name  "crowdtape-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add data/bot-usage.jsonl 2>/dev/null || true
+          git diff --staged --quiet && echo "no new usage" && exit 0
+          git commit -m "bot usage $(date -u +%Y-%m-%dT%H:%MZ)"
+          git pull --rebase --autostash origin main || true
+          git push
