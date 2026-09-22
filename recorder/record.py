@@ -106,6 +106,30 @@ def call(path, params):
     return out
 
 
+def _market_cap(c, q):
+    """Market cap, with the fallbacks CoinMarketCap's own zero makes necessary.
+
+    When circulating supply is unverified, `market_cap` is returned as **0** rather than
+    null - MALA sat at attention rank 4 with a market cap of 0 and a self-reported cap of
+    $810,666. Zero is not a small number here, it is a missing one, and treating it as a
+    number divides turnover and liquidation intensity by nothing.
+
+    Assets with unverified supply are exactly the ones that show up high on the attention
+    list, so this is the common case for the most interesting rows, not an edge case. The
+    source is recorded alongside the value so nothing downstream has to assume.
+    """
+    mc = q.get("market_cap")
+    if mc:
+        return mc, "r"                                  # reported
+    sr = c.get("self_reported_market_cap")
+    if sr:
+        return sr, "s"                                  # self-reported by the project
+    fdv = q.get("fully_diluted_market_cap")
+    if fdv:
+        return fdv, "f"                                 # fully diluted
+    return None, None
+
+
 def _r(x, sig=6):
     """Round to significant figures. Prices span 1e-9 to 1e5, so decimal places are
     the wrong unit; this halves the stored size without losing anything the engine reads."""
@@ -139,10 +163,12 @@ def thin(stream, data):
             # which the holder pass reads and which only grows when a new token appears.
             if cid is not None and pf.get("token_address"):
                 CONTRACTS[str(cid)] = [pf.get("slug"), pf.get("token_address")]
+            mc, mcs = _market_cap(c, q)
             out.append({"id": cid, "s": c.get("symbol"), "r": c.get("cmc_rank"),
+                        "mcs": mcs,
                         # None distinguishes "not a stablecoin" from "tags not returned"
                         "st": ("stablecoin" in tags) if isinstance(tags, list) else None,
-                        "p": _r(q.get("price")), "mc": _r(q.get("market_cap")),
+                        "p": _r(q.get("price")), "mc": _r(mc),
                         "v": _r(q.get("volume_24h")), "c1": _r(q.get("percent_change_1h"), 4),
                         "c24": _r(q.get("percent_change_24h"), 4),
                         "c7": _r(q.get("percent_change_7d"), 4)})
@@ -216,10 +242,11 @@ def thin(stream, data):
             for i, c in enumerate(data):
                 q = (c.get("quote", {}) or {}).get("USD", {}) or {}
                 tags = c.get("tags")
+                mc, mcs = _market_cap(c, q)
                 out.append({"a": i + 1, "id": c.get("id"), "s": c.get("symbol"),
-                            "r": c.get("cmc_rank"),
+                            "r": c.get("cmc_rank"), "mcs": mcs,
                             "st": ("stablecoin" in tags) if isinstance(tags, list) else None,
-                            "p": _r(q.get("price")), "mc": _r(q.get("market_cap")),
+                            "p": _r(q.get("price")), "mc": _r(mc),
                             "v": _r(q.get("volume_24h")),
                             "c1": _r(q.get("percent_change_1h"), 4),
                             "c24": _r(q.get("percent_change_24h"), 4),

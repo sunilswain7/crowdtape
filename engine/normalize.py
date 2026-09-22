@@ -37,6 +37,10 @@ class CoinState:
     symbol: str
     price: float | None = None
     market_cap: float | None = None
+    # Which figure the market cap came from: "r" reported, "s" self-reported by the
+    # project, "f" fully diluted, None when there was none to be had. CoinMarketCap
+    # returns 0 rather than null for unverified supply, so this is not cosmetic.
+    market_cap_source: str | None = None
     volume_24h: float | None = None
     rank: int | None = None
     pct_1h: float | None = None
@@ -137,7 +141,8 @@ def from_snapshot(snap: dict,
         by_id[int(cid)] = {
             "symbol": (c.get("s") or "").upper(),
             "price": c.get("p"), "market_cap": c.get("mc"), "volume_24h": c.get("v"),
-            "rank": c.get("r"), "st": c.get("st"), "pct_1h": c.get("c1"),
+            "rank": c.get("r"), "st": c.get("st"), "mcs": c.get("mcs"),
+            "pct_1h": c.get("c1"),
             "pct_24h": c.get("c24"), "pct_7d": c.get("c7"),
         }
 

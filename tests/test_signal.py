@@ -218,3 +218,26 @@ class AttentionDepth(unittest.TestCase):
     def test_absence_from_the_list_is_still_measured_quiet(self):
         self.assertIs(classify_attention(coin(att=None, att_avail=True), None, None),
                       Attention.QUIET)
+
+
+class ZeroMarketCap(unittest.TestCase):
+    """CoinMarketCap returns market_cap = 0, not null, when circulating supply is
+    unverified — and the assets high on the attention list are the likeliest to be in
+    that state. MALA sat at attention rank 4 with a reported cap of 0 and a self-reported
+    cap of $810,666. Zero is a missing number here, not a small one."""
+
+    def test_zero_market_cap_yields_no_turnover_rather_than_a_division(self):
+        self.assertIsNone(coin(mc=0, vol=1e8).turnover)
+
+    def test_zero_market_cap_leaves_leverage_unknown_not_stressed(self):
+        c = coin(mc=0, lo=9e6, sh=1e6)
+        self.assertIs(classify_leverage(c, QUIET_CUT), Leverage.UNKNOWN)
+
+    def test_an_asset_with_no_market_cap_still_gets_a_price_reading(self):
+        """It must not vanish from the board for want of a market cap — these are the
+        rows the product exists to surface."""
+        subject = coin(sym="MALA", mc=None, pct24=58.0, att=4, att_avail=True)
+        filler = [coin(cid=100 + i, sym=f"F{i}", vol=1e8, lo=1e5, sh=1e5) for i in range(30)]
+        v = next(x for x in classify([subject] + filler) if x.symbol == "MALA")
+        self.assertIsNot(v.reading, Reading.NOTHING)
+        self.assertIs(v.price, Price.UP)

@@ -89,6 +89,7 @@ def build():
 
     rows = []
     for v in sorted(vs, key=lambda v: (v.reading is Reading.NOTHING,
+                                       by_id[v.coin_id].attention_rank or 9999,
                                        by_id[v.coin_id].rank or 9999)):
         s = by_id[v.coin_id]
         rows.append({
@@ -98,6 +99,12 @@ def build():
             "attention": v.attention.value, "leverage": v.leverage.value,
             "why": v.why, "confident": v.confident,
             "attention_rank": s.attention_rank,
+            "attention_rank_30d": s.attention_rank_30d,
+            # How far attention runs ahead of size. CoinMarketCap's most-visited asset
+            # sat at market-cap rank 683 on the day this was written; that ratio is the
+            # single number this whole project exists to surface.
+            "attention_over_cap": (s.rank / s.attention_rank)
+                                  if (s.rank and s.attention_rank) else None,
             "wallet_count": s.wallet_count, "wallet_growth": s.wallet_growth,
             "liq_long_24h": s.liq_long_24h, "liq_short_24h": s.liq_short_24h,
         })
@@ -112,6 +119,7 @@ def build():
         # this is false, and the page says so rather than implying a signal it lacks.
         "attention_available": any(s.attention_available for s in states),
         "wallets_covered": sum(1 for s in states if s.wallet_growth is not None),
+        "attention_covered": sum(1 for s in states if s.attention_rank is not None),
         "holder_passes": len(holders.passes),
         "unavailable": notes,
         "rows": rows,

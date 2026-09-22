@@ -111,7 +111,9 @@ def pct(v, dp=2):
 
 
 def money(v):
-    if v is None:
+    # A zero here means CoinMarketCap could not verify circulating supply, not that the
+    # asset is worthless. Showing "$0" would state something false.
+    if not v:
         return "—"
     for cut, suf in ((1e12, "T"), (1e9, "B"), (1e6, "M")):
         if abs(v) >= cut:
@@ -131,6 +133,7 @@ def cmd_start(chat, _):
         "<i>The tape is what happened. The crowd is what happens next.</i>\n\n"
         "CoinMarketCap keeps no history of who is looking at what, or of how leverage "
         "builds. This records both every ten minutes and reads them against price.\n\n"
+        "<b>/crowd</b> — what people are actually looking up\n"
         "<b>/board</b> — what is carrying a reading right now\n"
         "<b>/coin BTC</b> — one asset in full\n"
         "<b>/score</b> — whether these readings actually work\n"
@@ -157,6 +160,37 @@ def cmd_why(chat, _):
         "reading is marked <i>unconfirmed</i>.")
 
 
+def cmd_crowd(chat, _):
+    """The headline: where attention runs furthest ahead of size.
+
+    The most-looked-up asset on CoinMarketCap is routinely something ranked in the
+    hundreds or thousands by market cap. That gap is the only thing here that cannot be
+    got from any other market data provider, so it gets its own command.
+    """
+    d = site("latest.json")
+    if not d.get("attention_available"):
+        return say(chat, "The most-visited feed is not available on this API plan right "
+                         "now, so there is no attention to rank.")
+    rows = [r for r in d["rows"] if r.get("attention_rank")]
+    rows.sort(key=lambda r: r["attention_rank"])
+    out = ["<b>Most looked up on CoinMarketCap</b>",
+           f"<i>{d['at'][:16].replace('T', ' ')} UTC · position on the most-visited "
+           f"list, against rank by size</i>", ""]
+    for r in rows[:15]:
+        ao = r.get("attention_over_cap")
+        gap = f" · <b>{round(ao)}×</b> ahead of its size" if ao and ao >= 2 else ""
+        tag = "" if r["reading"] == "nothing" else f" — {READING[r['reading']]}"
+        out.append(f"<b>#{r['attention_rank']}</b> {r['symbol']}  "
+                   f"<i>cap #{r['rank']}</i>{gap}{tag}")
+    widest = max((r for r in rows if r.get("attention_over_cap")),
+                 key=lambda r: r["attention_over_cap"], default=None)
+    if widest:
+        out += ["", f"Widest gap: <b>{widest['symbol']}</b> — looked up "
+                    f"#{widest['attention_rank']}, ranked #{widest['rank']} by market "
+                    f"cap. {round(widest['attention_over_cap'])}× more attention than size."]
+    say(chat, "\n".join(out))
+
+
 def cmd_board(chat, _):
     d = site("latest.json")
     rows = [r for r in d["rows"] if r["reading"] != "nothing"]
@@ -175,10 +209,14 @@ def cmd_board(chat, _):
             break
         excess = None if r["pct_24h"] is None else r["pct_24h"] - d["median_move_24h"]
         mark = "" if r["confident"] else " <i>·unconfirmed</i>"
+        att = f" · looked up <b>#{r['attention_rank']}</b>" if r.get("attention_rank") else ""
         out.append(f"{READING[r['reading']]}  <b>{r['symbol']}</b>  "
-                   f"{pct(r['pct_24h'],1)} ({pct(excess,1)} vs mkt){mark}")
+                   f"{pct(r['pct_24h'],1)} ({pct(excess,1)} vs mkt){att}{mark}")
         shown += 1
-    if not d["attention_available"]:
+    if d["attention_available"]:
+        out.append("\n<i>/crowd ranks everything by how looked-at it is, against its "
+                   "size.</i>")
+    else:
         out.append("\n<i>CoinMarketCap's most-visited feed is not on this API plan, so "
                    "the crowd axis uses wallet growth where available.</i>")
     say(chat, "\n".join(out))
@@ -204,6 +242,19 @@ def cmd_coin(chat, args):
            f"<i>{r['why']}</i>"]
     if r["reading"] == "nothing":
         out[-2] = "<b>No reading</b>"
+    if r.get("attention_rank"):
+        ao = r.get("attention_over_cap")
+        out.append(f"\nLooked up   <b>#{r['attention_rank']}</b> on CoinMarketCap"
+                   + (f"  ({round(ao)}× ahead of its size)" if ao and ao >= 2 else ""))
+        if r.get("attention_rank_30d"):
+            # 40 places is the same threshold engine/signal.py uses to call attention
+            # accelerating, so the wording cannot disagree with the reading beside it.
+            trend = ("newer than it looks"
+                     if r["attention_rank_30d"] > r["attention_rank"] + 40
+                     else "a standing crowd")
+            out.append(f"            #{r['attention_rank_30d']} over 30 days — {trend}")
+    elif d.get("attention_available"):
+        out.append("\nLooked up   not in the most-visited 200 — measurably quiet")
     if r.get("wallet_count"):
         out.append(f"\nWallets     {r['wallet_count']:,}"
                    + (f"  ({r['wallet_growth']*100:+.3f}% since last pass)"
@@ -238,7 +289,7 @@ def cmd_score(chat, _):
 
 COMMANDS = {"start": cmd_start, "help": cmd_start, "board": cmd_board,
             "coin": cmd_coin, "c": cmd_coin, "score": cmd_score,
-            "scorecard": cmd_score, "why": cmd_why}
+            "scorecard": cmd_score, "why": cmd_why, "crowd": cmd_crowd}
 
 
 def handle(msg):
@@ -263,6 +314,7 @@ def main():
     me = tg("getMe").get("result", {})
     print(f"crowdtape bot up as @{me.get('username','?')}, reading {SITE}", flush=True)
     tg("setMyCommands", commands=[
+        {"command": "crowd", "description": "What people are actually looking up"},
         {"command": "board", "description": "What is carrying a reading right now"},
         {"command": "coin", "description": "One asset in full — /coin BTC"},
         {"command": "score", "description": "Whether these readings actually work"},

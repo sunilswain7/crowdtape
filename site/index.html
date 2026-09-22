@@ -79,6 +79,11 @@ tbody tr:last-child td{border-bottom:none}
 tbody tr:hover{background:var(--surface-2)}
 td.num{font-variant-numeric:tabular-nums}
 .badge{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--text-primary)}
+.att{font-variant-numeric:tabular-nums;line-height:1.2}
+.att b{font-size:15px}
+.att span{display:block;font-size:11px;color:var(--text-muted)}
+.gap{font-weight:600}
+.gap.big{color:var(--spring)}
 .dot{width:9px;height:9px;border-radius:50%;flex:none}
 .why{color:var(--text-secondary);font-size:13px;white-space:normal;min-width:240px}
 .sym{font-weight:600}
@@ -141,16 +146,21 @@ footer code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-s
 <section>
   <div class="shead"><h2>The board</h2></div>
   <p class="note">
-    Every asset in the top 200 carrying a reading right now. Price is judged on its
-    <strong>excess over the universe median</strong>, not on its raw move, so a coin up 3%
-    on a day the median coin is up 4% counts as falling behind. Stablecoins are excluded:
-    every peg underperforms a rising market, and that is not a signal.
+    <strong>Looked up</strong> is the asset's position on CoinMarketCap's most-visited
+    list — what people are researching, not what they are posting about. Beneath it is the
+    market-cap rank, and the gap between the two is the point: the most-looked-up asset on
+    CoinMarketCap is routinely something ranked in the hundreds or thousands by size.
+    <br><br>
+    Price is judged on its <strong>excess over the universe median</strong>, not its raw
+    move, so a coin up 3% on a day the median is up 4% counts as falling behind.
+    Stablecoins are excluded — every peg underperforms a rising market, and that is not a
+    signal.
   </p>
   <div class="legend" id="legend"></div>
   <div class="tablewrap"><table id="board">
     <thead><tr>
-      <th class="l">Asset</th><th class="l">Reading</th><th>Price</th>
-      <th>24h</th><th>vs median</th><th class="l">Leverage</th><th class="l">Why</th>
+      <th>Looked&nbsp;up</th><th class="l">Asset</th><th class="l">Reading</th>
+      <th>Price</th><th>24h</th><th>vs median</th><th>Wallets</th><th class="l">Why</th>
     </tr></thead>
     <tbody></tbody>
   </table></div>
@@ -160,13 +170,16 @@ footer code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-s
   <div class="shead"><h2>Against the market</h2>
     <select id="pick" class="ghost" aria-label="Choose an asset"></select></div>
   <p class="note">
-    Both lines are indexed to 100 at the start of the recorded window, so they share one
-    axis and the gap between them <em>is</em> the excess return the scorecard grades.
-    The strip underneath shows which reading was live at each snapshot.
+    Two panels, one shared timeline. Above: the asset and the market median both indexed
+    to 100, so they share an axis and the gap between them <em>is</em> the excess return
+    the scorecard grades. Below: where the asset sat on the most-visited list, lower being
+    more looked at. Separate panels rather than two scales on one plot — the alignment of
+    two different units is arbitrary and invents a correlation that is not in the data.
   </p>
   <div class="chartcard">
     <div class="legend" id="clegend"></div>
     <div id="chart"></div>
+    <div id="attchart"></div>
     <div id="strip"></div>
     <p class="prov" id="cnote"></p>
   </div>
@@ -232,7 +245,7 @@ const LEVERAGE = {
   longs_flushing: "Longs flushing", shorts_squeezed: "Shorts squeezed",
   quiet: "Quiet", unknown: "—",
 };
-const money = v => v == null ? "—"
+const money = v => !v ? "—"
   : v >= 1e12 ? "$" + (v/1e12).toFixed(2) + "T"
   : v >= 1e9  ? "$" + (v/1e9).toFixed(1)  + "B"
   : v >= 1e6  ? "$" + (v/1e6).toFixed(1)  + "M"
@@ -286,8 +299,14 @@ $("#kpis").innerHTML = [
     delta: "the bar every asset is judged against" },
   { label: "Exit liquidity", value: counts.exit_liquidity || 0,
     delta: "crowd arriving after the move" },
-  { label: "Loaded spring", value: counts.loaded_spring || 0,
-    delta: "crowd arriving before it" },
+  (() => {
+    const top = latest.rows.filter(r => r.attention_over_cap)
+                           .sort((a, b) => b.attention_over_cap - a.attention_over_cap)[0];
+    return { label: "Widest attention gap",
+             value: top ? `${top.symbol} ${Math.round(top.attention_over_cap)}×` : "—",
+             delta: top ? `looked up #${top.attention_rank}, ranked #${top.rank} by size`
+                        : "no attention data" };
+  })(),
 ].map(t => `<div class="tile"><div class="label">${t.label}</div>
    <div class="value">${t.value}</div><div class="delta">${t.delta}</div></div>`).join("");
 
@@ -297,24 +316,33 @@ $("#legend").innerHTML = Object.entries(READINGS)
   .join("");
 
 const order = ["exit_liquidity", "loaded_spring", "capitulation", "quiet_accumulation"];
+// Within a reading, order by how looked-at the asset is - that is the leading column
+// and the subject. Ordering by market cap buried the most interesting rows: the
+// most-visited asset on the list sat at cap rank 682 and fell to the bottom of its group.
 flagged.sort((a, b) => order.indexOf(a.reading) - order.indexOf(b.reading)
+                    || (a.attention_rank ?? 9999) - (b.attention_rank ?? 9999)
                     || (a.rank ?? 9999) - (b.rank ?? 9999));
 
 $("#board tbody").innerHTML = flagged.length ? flagged.map(r => {
   const R = READINGS[r.reading];
   const excess = r.pct_24h == null ? null : r.pct_24h - latest.median_move_24h;
+  const ao = r.attention_over_cap;
+  const gap = ao == null ? "" :
+    `<span class="gap ${ao >= 10 ? "big" : ""}">${ao >= 2 ? Math.round(ao) + "×" : ""}</span>`;
   return `<tr>
-    <td class="l"><span class="sym">${r.symbol}</span>
-      <span class="prov"> #${r.rank ?? "—"}</span></td>
+    <td class="att">${r.attention_rank
+        ? `<b>#${r.attention_rank}</b><span>cap #${r.rank ?? "—"} ${gap}</span>`
+        : `<span class="prov">—</span>`}</td>
+    <td class="l"><span class="sym">${r.symbol}</span></td>
     <td class="l"><span class="badge"><i class="dot" style="background:${R.color}"></i>${R.label}</span></td>
     <td class="num">${price(r.price)}</td>
     <td class="num">${signed(r.pct_24h)}</td>
     <td class="num">${signed(excess)}</td>
-    <td class="l">${LEVERAGE[r.leverage] ?? "—"}</td>
+    <td class="num">${r.wallet_count ? r.wallet_count.toLocaleString() : "—"}</td>
     <td class="l why">${r.why}${r.confident ? "" :
       ` <span class="prov">· unconfirmed</span>`}</td>
   </tr>`;
-}).join("") : `<tr><td colspan="7" class="empty">Nothing is carrying a reading in this
+}).join("") : `<tr><td colspan="8" class="empty">Nothing is carrying a reading in this
   snapshot. That is a real answer, not a missing one.</td></tr>`;
 
 const VLABEL = { supported: "SUPPORTED", rejected: "REJECTED", "no edge": "NO EDGE",
@@ -403,6 +431,51 @@ function draw(id) {
       fill="transparent" style="cursor:crosshair"/>
   </svg>`;
 
+  $("#clegend").innerHTML =
+    `<span><i class="dot" style="background:${colour}"></i>${row?.symbol}</span>` +
+    `<span><i class="dot" style="background:var(--text-muted)"></i>Market median</span>`;
+
+  // --- attention panel: the crowd, on its own axis, sharing the timeline above.
+  // Rank 1 is the most looked at, so the scale is inverted - up means more attention,
+  // which is the direction a reader expects "more" to go.
+  const apts = pts.filter(p => p.a != null);
+  if (apts.length >= 2) {
+    const AH = 120, AP = { t: 12, r: 56, b: 18, l: 44 };
+    const ranks = apts.map(p => p.a);
+    const worst = Math.min(200, Math.max(...ranks) + 8), best = Math.max(1, Math.min(...ranks) - 4);
+    const AY = v => AP.t + (AH - AP.t - AP.b) * (v - best) / ((worst - best) || 1);
+    const astep = Math.max(1, Math.round((worst - best) / 3));
+    const agrid = [];
+    for (let v = best; v <= worst; v += astep) {
+      agrid.push(`<line class="grid" x1="${AP.l}" x2="${W - AP.r}" y1="${AY(v)}" y2="${AY(v)}"/>
+        <text class="axis" x="${AP.l - 8}" y="${AY(v) + 4}" text-anchor="end">#${Math.round(v)}</text>`);
+    }
+    // Gaps matter: a break means the asset left the list entirely, which is information,
+    // so segments are drawn separately rather than joined across the hole.
+    const segs = [];
+    let cur = [];
+    for (const p of pts) {
+      if (p.a == null) { if (cur.length > 1) segs.push(cur); cur = []; }
+      else cur.push(p);
+    }
+    if (cur.length > 1) segs.push(cur);
+    const alast = apts.at(-1);
+    $("#attchart").innerHTML = `<svg viewBox="0 0 ${W} ${AH}" role="img"
+        aria-label="${row?.symbol} position on the most-visited list over time">
+      ${agrid.join("")}
+      ${segs.map(sg => `<path class="ser" style="stroke:var(--quiet)"
+        d="${sg.map((p, i) => (i ? "L" : "M") + X(Date.parse(p.t)) + " " + AY(p.a)).join("")}"/>`).join("")}
+      <circle cx="${X(Date.parse(alast.t))}" cy="${AY(alast.a)}" r="4.5"
+        fill="var(--quiet)" stroke="var(--surface-1)" stroke-width="2"/>
+      <text class="axis" x="${X(Date.parse(alast.t)) + 9}" y="${AY(alast.a) + 4}"
+        style="fill:var(--text-primary)">#${alast.a}</text>
+    </svg>`;
+    $("#clegend").innerHTML +=
+      `<span><i class="dot" style="background:var(--quiet)"></i>Looked up (rank, lower is more)</span>`;
+  } else {
+    $("#attchart").innerHTML = "";
+  }
+
   // reading strip, sharing the x-axis above it
   $("#strip").innerHTML = `<svg viewBox="0 0 ${W} 26" role="img"
       aria-label="Reading at each snapshot">` + pts.map((p, i) => {
@@ -413,9 +486,6 @@ function draw(id) {
       new Date(p.t).toUTCString()} — ${READINGS[p.r].label}</title></rect>`;
   }).join("") + `</svg>`;
 
-  $("#clegend").innerHTML =
-    `<span><i class="dot" style="background:${colour}"></i>${row?.symbol}</span>` +
-    `<span><i class="dot" style="background:var(--text-muted)"></i>Market median</span>`;
   $("#cnote").textContent =
     `${pts.length} snapshots · both indexed to 100 at ${new Date(pts[0].t)
       .toUTCString().replace("GMT","UTC")}`;
