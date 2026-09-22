@@ -167,3 +167,54 @@ class Normalising(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AttentionDepth(unittest.TestCase):
+    """With a 200-deep list, merely being on it is not an event.
+
+    Treating arrival anywhere on the list as news fired a reading on three quarters of
+    the universe the first time the real feed was read, which is why these exist.
+    """
+
+    def test_arriving_deep_in_the_list_is_not_an_event(self):
+        deep = coin(att=197, att_avail=True)
+        self.assertIs(classify_attention(deep, None, None), Attention.STEADY)
+
+    def test_arriving_high_in_the_list_is_an_event(self):
+        high = coin(att=12, att_avail=True)
+        self.assertIs(classify_attention(high, None, None), Attention.RISING)
+
+    def test_climbing_is_an_event_wherever_it_happens(self):
+        now, before = coin(att=120, att_avail=True), coin(att=180, att_avail=True)
+        self.assertIs(classify_attention(now, before, None), Attention.RISING)
+
+    def test_attention_far_better_on_24h_than_30d_is_accelerating(self):
+        """Interest that did not exist a month ago, established without our own history."""
+        c = CoinState(at="", coin_id=1, symbol="MALA", market_cap=1e8, volume_24h=1e7,
+                      attention_rank=4, attention_rank_30d=90,
+                      attention_available=True, attention_30d_available=True)
+        self.assertIs(classify_attention(c, None, None), Attention.RISING)
+
+    def test_a_standing_crowd_is_steady_not_rising(self):
+        """High on every horizon means the crowd is already there, not arriving."""
+        c = CoinState(at="", coin_id=1, symbol="BTC", market_cap=1e12, volume_24h=1e10,
+                      attention_rank=2, attention_rank_30d=2,
+                      attention_available=True, attention_30d_available=True)
+        self.assertIs(classify_attention(c, c, None), Attention.STEADY)
+
+    def test_an_unread_30d_list_is_not_treated_as_absence(self):
+        """The flag distinguishes "not on the list" from "never looked"."""
+        unread = CoinState(at="", coin_id=1, symbol="X", market_cap=1e8, volume_24h=1e7,
+                           attention_rank=28, attention_rank_30d=None,
+                           attention_available=True, attention_30d_available=False)
+        self.assertIs(classify_attention(unread, unread, None), Attention.STEADY)
+
+    def test_absent_from_the_30d_list_counts_as_past_its_end(self):
+        c = CoinState(at="", coin_id=1, symbol="NEW", market_cap=1e8, volume_24h=1e7,
+                      attention_rank=150, attention_rank_30d=None,
+                      attention_available=True, attention_30d_available=True)
+        self.assertIs(classify_attention(c, c, None), Attention.RISING)
+
+    def test_absence_from_the_list_is_still_measured_quiet(self):
+        self.assertIs(classify_attention(coin(att=None, att_avail=True), None, None),
+                      Attention.QUIET)

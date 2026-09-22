@@ -49,8 +49,13 @@ class CoinState:
     attention_available: bool = False
     # Position on the longer horizons. High 24h attention with no 7d or 30d presence is
     # brand-new interest; present on all three is a standing crowd.
+    #
+    # `None` on a rank is ambiguous on its own - it means either "absent from that list"
+    # or "that list was never read" - so the flag says which. Without it, a snapshot
+    # taken before the 30d stream existed would read as every asset being brand new.
     attention_rank_7d: int | None = None
     attention_rank_30d: int | None = None
+    attention_30d_available: bool = False
     # None means CoinMarketCap did not return tags on this snapshot, which is not the
     # same as "not a stablecoin" and must not be treated as it.
     is_stablecoin: bool | None = None
@@ -164,6 +169,7 @@ def from_snapshot(snap: dict,
             if isinstance(rows, list) else {}
 
     att7, att30 = horizon("most_visited_7d"), horizon("most_visited_30d")
+    att30_available = bool(att30)
 
     # The universe is the union: market-cap ranked assets plus attention outliers.
     for cid, row in unlisted.items():
@@ -209,6 +215,7 @@ def from_snapshot(snap: dict,
                              attention_available=attention_available,
                              attention_rank_7d=att7.get(cid),
                              attention_rank_30d=att30.get(cid),
+                             attention_30d_available=att30_available,
                              is_stablecoin=m["st"],
                              wallet_count=wc, wallet_growth=wg,
                              liq_long_1h=l1, liq_short_1h=s1,

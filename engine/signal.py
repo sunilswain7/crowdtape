@@ -26,6 +26,9 @@ from .normalize import CoinState
 # --- thresholds. Visible on purpose. --------------------------------------------
 PRICE_EXCESS_PCT = 2.0      # 24h move minus the universe median, in points
 ATTENTION_JUMP = 5          # places gained on the most-visited list to count as rising
+ATTENTION_NEW_TOP = 50      # entering the list matters only this high up
+ATTENTION_ACCEL = 40        # places better on 24h than on 30d to count as accelerating
+ATTENTION_DEPTH = 200       # how deep the list runs; absent counts as one past the end
 WALLET_PCTILE = 0.75        # wallet growth above this quartile of the covered set = rising
 WALLET_PCTILE_QUIET = 0.25  # below this quartile = genuinely quiet
 TURNOVER_Z = 1.5            # last resort: z-score of volume/mcap to count as rising
@@ -103,10 +106,28 @@ def classify_attention(s: CoinState, prev: CoinState | None,
        of it, so a verdict resting on it is marked unconfirmed.
     """
     if s.attention_rank is not None:
-        if prev is None or prev.attention_rank is None:
-            return Attention.RISING      # appearing on the list at all is the event
-        if prev.attention_rank - s.attention_rank >= ATTENTION_JUMP:
+        # Climbing, measured against the previous snapshot.
+        if prev is not None and prev.attention_rank is not None:
+            if prev.attention_rank - s.attention_rank >= ATTENTION_JUMP:
+                return Attention.RISING
+        elif s.attention_rank <= ATTENTION_NEW_TOP:
+            # Arriving from outside the list is only an event if it arrives high. The
+            # list runs 200 deep; entering it at 197 is not news, and treating it as
+            # news fired a reading on three quarters of the universe when this was
+            # first run against live data.
             return Attention.RISING
+
+        # Accelerating, measured across horizons rather than against a previous snapshot.
+        # A high 24h position with a poor 30d one is interest that did not exist a month
+        # ago - which is the same claim as "the crowd is arriving", established without
+        # needing any history of our own.
+        if s.attention_30d_available:
+            # Absent from the 30d list counts as one past its end. That is only a fair
+            # reading when the list was actually fetched, which the flag establishes -
+            # otherwise every asset in an older snapshot would look brand new.
+            long_rank = s.attention_rank_30d or (ATTENTION_DEPTH + 1)
+            if long_rank - s.attention_rank >= ATTENTION_ACCEL:
+                return Attention.RISING
         return Attention.STEADY
     if s.attention_available:
         # The list was readable and this asset is not on it. That is a measurement of
