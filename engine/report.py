@@ -18,6 +18,7 @@ from .signal import classify, Reading
 from .events import DIRECTION, HORIZONS_H, detect, score, scorecard, verdict
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+_BLANK = CoinState(at="", coin_id=0, symbol="")
 OUT = ROOT / "site" / "data"
 GRADE_TOLERANCE = 0.25      # a horizon is gradeable if a snapshot sits within ±25% of it
 
@@ -42,12 +43,14 @@ def build():
 
     # classify every snapshot against the one before it
     verdicts_by_ts: dict[str, list] = {}
+    states_by_ts: dict[str, dict[int, CoinState]] = {}
     prices_by_ts: dict[str, dict[int, float]] = {}
     history: dict[int, list] = collections.defaultdict(list)
     prev: dict[int, CoinState] = {}
     for at, states, _ in snapshots:
         vs = classify(states, prev)
         verdicts_by_ts[at] = vs
+        states_by_ts[at] = {s.coin_id: s for s in states}
         prices_by_ts[at] = {s.coin_id: s.price for s in states if s.price}
         for v in vs:
             history[v.coin_id].append((v, prices_by_ts[at].get(v.coin_id)))
@@ -155,7 +158,10 @@ def build():
             if price is None:
                 continue
             pts.append({"t": t, "p": price, "r": st.reading.value,
-                        "i": 100 * price / base[cid] if base.get(cid) else None})
+                        "i": 100 * price / base[cid] if base.get(cid) else None,
+                        # attention position, so the chart can show the crowd arriving
+                        # beside the price rather than on top of it
+                        "a": (states_by_ts.get(t, {}).get(cid) or _BLANK).attention_rank})
         if len(pts) >= 2:
             series[str(cid)] = pts
     (OUT / "series.json").write_text(json.dumps(series, separators=(",", ":"), default=str))
@@ -167,7 +173,13 @@ def build():
     verdicts = {}
     for reading, group in by_reading.items():
         v, why = verdict(reading, group)
-        verdicts[reading.value] = {"verdict": v, "why": why, "n": len(group)}
+        confident = [g for g in group if g.event.confident and g.hit is not None]
+        proxied = [g for g in group if not g.event.confident and g.hit is not None]
+        verdicts[reading.value] = {
+            "verdict": v, "why": why, "n": len(group),
+            # Kept apart on purpose: a reading made on turnover standing in for a crowd
+            # is a different model from one made on a count of people.
+            "graded_confident": len(confident), "graded_proxied": len(proxied)}
 
     (OUT / "scorecard.json").write_text(json.dumps({
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),

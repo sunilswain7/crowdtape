@@ -53,10 +53,10 @@ class Detection(unittest.TestCase):
         self.assertEqual(MIN_DWELL, 2)
 
 
-def ev(reading, price=100.0):
+def ev(reading, price=100.0, confident=True):
     return Event(coin_id=1, symbol="AAA", reading=reading,
                  opened_at="2026-09-18T00:00:00Z", price_at_open=price,
-                 why="because", confident=True)
+                 why="because", confident=confident)
 
 
 class Grading(unittest.TestCase):
@@ -117,7 +117,7 @@ if __name__ == "__main__":
 class Verdicts(unittest.TestCase):
     """The scorecard's plain-language call on each reading."""
 
-    def _scores(self, reading, n, hit_frac, excess):
+    def _scores(self, reading, n, hit_frac, excess, confident=True):
         """n graded scores, a fraction of which went the claimed way."""
         from engine.events import DIRECTION
         d = DIRECTION[reading]
@@ -125,8 +125,26 @@ class Verdicts(unittest.TestCase):
         for i in range(n):
             # excess signed so that `hit_frac` of them agree with the claim
             e = excess if i < n * hit_frac else -excess
-            out.append(score(ev(reading), 24, 100 * (1 + e * d), [0.0]))
+            out.append(score(ev(reading, confident=confident), 24,
+                             100 * (1 + e * d), [0.0]))
         return out
+
+    def test_readings_made_on_a_proxy_are_not_graded(self):
+        """A reading made while the crowd axis was turnover standing in for a crowd is a
+        different model from one made on a count of people. Pooling them reports the
+        accuracy of neither - and when the real feed arrived mid-run, pooling turned a
+        rejected reading into an inconclusive one on arithmetic alone."""
+        from engine.events import verdict
+        proxied = self._scores(Reading.LOADED_SPRING, 200, 0.9, 0.05, confident=False)
+        v, why = verdict(Reading.LOADED_SPRING, proxied)
+        self.assertEqual(v, "too early", "200 proxied readings must not earn a verdict")
+        self.assertIn("measured crowd axis", why)
+
+    def test_pooling_can_be_asked_for_explicitly(self):
+        from engine.events import verdict
+        proxied = self._scores(Reading.LOADED_SPRING, 200, 0.9, 0.05, confident=False)
+        self.assertEqual(
+            verdict(Reading.LOADED_SPRING, proxied, confident_only=False)[0], "supported")
 
     def test_a_working_reading_is_supported(self):
         from engine.events import verdict

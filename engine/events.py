@@ -132,20 +132,30 @@ REJECT_HIT = 0.45           # and below which the data is arguing with it
 MATERIAL_EXCESS = 0.005     # 0.5 pt of mean excess, below which it is noise either way
 
 
-def verdict(reading: Reading, scores: list[Score]) -> tuple[str, str]:
+def verdict(reading: Reading, scores: list[Score],
+            confident_only: bool = True) -> tuple[str, str]:
     """What the record says about a reading, in plain words. Returns (verdict, why).
 
     `evidence` is the mean excess return signed by what the reading claims, so a positive
     number always means "the claim was right" regardless of which way it points. That
     matters for exit_liquidity, which predicts underperformance: its assets going UP is
     the claim failing, and a raw mean would read as success.
+
+    **Only confident readings are graded by default.** A reading made while the crowd
+    axis was turnover standing in for a crowd is a different model from one made on a
+    measured count of people, and averaging the two reports the accuracy of neither. When
+    the attention feed became available mid-run this stopped being hypothetical: pooling
+    the two turned a rejected reading into an inconclusive one, which is a real change of
+    conclusion produced by nothing but arithmetic.
     """
     direction = DIRECTION.get(reading, 0)
     if direction == 0:
         return "not graded", "This reading claims no direction, so it takes no credit."
-    graded = [s for s in scores if s.hit is not None]
+    graded = [s for s in scores
+              if s.hit is not None and (s.event.confident or not confident_only)]
     if len(graded) < MIN_TO_JUDGE:
-        return "too early", f"Only {len(graded)} graded; {MIN_TO_JUDGE} before calling it."
+        return "too early", (f"Only {len(graded)} graded on a measured crowd axis; "
+                             f"{MIN_TO_JUDGE} before calling it.")
     hit = sum(1 for g in graded if g.hit) / len(graded)
     evidence = statistics.fmean([g.excess_return for g in graded]) * direction
     if hit >= SUPPORT_HIT and evidence >= MATERIAL_EXCESS:

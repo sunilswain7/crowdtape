@@ -154,7 +154,13 @@ def from_snapshot(snap: dict,
             if cid is None:
                 continue
             cid = int(cid)
-            att[cid] = int(row["a"])
+            # `a` is the current field; `rank` is what the recorder wrote before the
+            # attention feed was ever readable and the thinning was rewritten. Snapshots
+            # in the old shape are still valid data and must keep parsing.
+            pos = row.get("a", row.get("rank"))
+            if pos is None:
+                continue
+            att[cid] = int(pos)
             # Rows carrying a symbol are the ones `listings` did not cover: assets with
             # real attention and too little market cap for the top 200.
             if "s" in row:
@@ -164,9 +170,11 @@ def from_snapshot(snap: dict,
 
     def horizon(name: str) -> dict[int, int]:
         rows = data(name)
-        return {int(r["id"]): int(r["a"]) for r in rows
-                if isinstance(r, dict) and r.get("id") is not None} \
-            if isinstance(rows, list) else {}
+        if not isinstance(rows, list):
+            return {}
+        return {int(r["id"]): int(r.get("a", r.get("rank")))
+                for r in rows if isinstance(r, dict) and r.get("id") is not None
+                and r.get("a", r.get("rank")) is not None}
 
     att7, att30 = horizon("most_visited_7d"), horizon("most_visited_30d")
     att30_available = bool(att30)
