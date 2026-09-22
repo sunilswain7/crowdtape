@@ -10,9 +10,15 @@ docs/payload-shapes.md. Two formats are read, because the recorder's own thinnin
 on that date and the snapshots taken before it are still valid data:
 `{"rows": [...]}` (current) and `{"cryptocurrencies": [...]}` (raw, as first recorded).
 
-`most_visited` remains UNVERIFIED. It has answered 403 on every call since the key was
-issued, so its normaliser still accepts several plausible spellings and records what it
-could not read rather than inventing a value.
+`most_visited` was observed on 22 Sep once the plan allowed it. **It carries no
+magnitude** - no view count, no traffic score; `cmc_rank` in that payload is the
+market-cap rank. Attention is therefore the POSITION in the returned list and nothing
+else, stored by the recorder as `a`.
+
+The 24h stream also returns a full quote, which matters: the most-visited asset on
+CoinMarketCap at the time of writing was EDEL, at market-cap rank 683. Assets like that
+are the entire point of the signal and would be invisible in a top-200 universe, so the
+universe is the **union** of the market-cap listing and the attention list.
 
     python3 -m engine.normalize data/2026-09-19.jsonl
 
@@ -41,6 +47,10 @@ class CoinState:
     # could see is evidence of low interest, absent because you are blind is not.
     attention_rank: int | None = None
     attention_available: bool = False
+    # Position on the longer horizons. High 24h attention with no 7d or 30d presence is
+    # brand-new interest; present on all three is a standing crowd.
+    attention_rank_7d: int | None = None
+    attention_rank_30d: int | None = None
     # None means CoinMarketCap did not return tags on this snapshot, which is not the
     # same as "not a stablecoin" and must not be treated as it.
     is_stablecoin: bool | None = None
@@ -129,18 +139,40 @@ def from_snapshot(snap: dict,
     # --- attention. UNVERIFIED shape. Rank is position in the returned list; the
     #     recorder preserves whole records so a magnitude field, if one exists, is
     #     not thrown away before it has been seen.
-    att: dict[int, int] = {}
     mv = data("most_visited_24h")
     attention_available = isinstance(mv, list) and bool(mv)
+    att: dict[int, int] = {}
+    unlisted: dict[int, dict] = {}
     if isinstance(mv, list):
         for row in mv:
-            if not isinstance(row, dict):
+            cid = row.get("id")
+            if cid is None:
                 continue
-            cid, _ = _ident(row)
-            if cid is not None:
-                att[cid] = int(row.get("rank") or (len(att) + 1))
+            cid = int(cid)
+            att[cid] = int(row["a"])
+            # Rows carrying a symbol are the ones `listings` did not cover: assets with
+            # real attention and too little market cap for the top 200.
+            if "s" in row:
+                unlisted[cid] = row
         if mv and not att:
             notes["most_visited_24h"] = "records present but no id field matched"
+
+    def horizon(name: str) -> dict[int, int]:
+        rows = data(name)
+        return {int(r["id"]): int(r["a"]) for r in rows
+                if isinstance(r, dict) and r.get("id") is not None} \
+            if isinstance(rows, list) else {}
+
+    att7, att30 = horizon("most_visited_7d"), horizon("most_visited_30d")
+
+    # The universe is the union: market-cap ranked assets plus attention outliers.
+    for cid, row in unlisted.items():
+        by_id.setdefault(cid, {
+            "symbol": (row.get("s") or "").upper(), "price": row.get("p"),
+            "market_cap": row.get("mc"), "volume_24h": row.get("v"),
+            "rank": row.get("r"), "st": row.get("st"), "pct_1h": row.get("c1"),
+            "pct_24h": row.get("c24"), "pct_7d": row.get("c7"),
+        })
 
     # --- positioning. UNVERIFIED shape. ---
     liq: dict[int, tuple] = {}
@@ -175,6 +207,8 @@ def from_snapshot(snap: dict,
                              pct_1h=m["pct_1h"], pct_24h=m["pct_24h"], pct_7d=m["pct_7d"],
                              attention_rank=att.get(cid),
                              attention_available=attention_available,
+                             attention_rank_7d=att7.get(cid),
+                             attention_rank_30d=att30.get(cid),
                              is_stablecoin=m["st"],
                              wallet_count=wc, wallet_growth=wg,
                              liq_long_1h=l1, liq_short_1h=s1,

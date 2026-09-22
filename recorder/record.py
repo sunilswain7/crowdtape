@@ -30,34 +30,39 @@ DATA.mkdir(exist_ok=True)
 
 UNIVERSE = 200  # listings/latest is priced per 200 data points, so this costs 1 credit
 
+CONTRACTS_FILE = DATA / "contracts.json"
+CONTRACTS: dict[str, list] = (
+    json.loads(CONTRACTS_FILE.read_text()) if CONTRACTS_FILE.exists() else {})
+
 # --- holder counts ----------------------------------------------------------
 # `/v1/dex/holders/count` is how many distinct wallets hold a token. It is the only
 # actual measurement of crowd size reachable on this plan - not a proxy like turnover -
 # and CoinMarketCap gates `/v1/dex/holders/trend/list` (403, measured), so the series
 # does not exist anywhere unless somebody records the counts. That is the whole idea.
 #
-# It costs 1 credit per token and 137 of the top 200 carry a contract address, so polling
-# them all every ten minutes would be 19,728 credits a day against a 15,000/month ceiling.
-# Wallet counts move over hours, not minutes, so they are polled on a slow cycle instead:
-# HOLDERS_N tokens every HOLDERS_EVERY snapshots. 50 tokens every 18 cycles (3 hours) is
-# 400 credits a day, inside the 603/day that is spare after the main recorder.
+# It costs 1 credit per token. On the free tier that bought 50 tokens every three hours
+# against a 15,000/month ceiling; on Startup the ceiling is 450,000 and the constraint is
+# no longer credits but repository size, so every contract token in the universe is polled
+# every half hour. HOLDERS_N tokens every HOLDERS_EVERY snapshots.
 #
 # Parameter names are `platform` and `tokenAddress`, camelCase where the rest of the API
 # is snake_case. Five snake_case spellings returned a bare "Missing required parameter";
 # these came from a working call in a public repository and were then verified live.
-HOLDERS_N = int(os.environ.get("HOLDERS_N", "50"))
-RATE_SLEEP = 1.3   # 50 requests/minute on Basic, measured from /v1/key/info
+HOLDERS_N = int(os.environ.get("HOLDERS_N", "200"))
+RATE_SLEEP = float(os.environ.get("RATE_SLEEP", "0.12"))  # 600/min on Startup
 
 
 # axis: what each stream feeds. tier: lowest plan that can call it.
 STREAMS = [
     # --- ATTENTION. Startup tier. The uncontested half. ---
     ("attention",   "most_visited_24h", "GET", "/v1/cryptocurrency/trending/most-visited",
-     {"time_period": "24h", "limit": "100"}),
+     {"time_period": "24h", "limit": "200"}),
     ("attention",   "most_visited_7d",  "GET", "/v1/cryptocurrency/trending/most-visited",
-     {"time_period": "7d", "limit": "100"}),
+     {"time_period": "7d", "limit": "200"}),
+    ("attention",   "most_visited_30d", "GET", "/v1/cryptocurrency/trending/most-visited",
+     {"time_period": "30d", "limit": "200"}),
     ("attention",   "trending_latest",  "GET", "/v1/cryptocurrency/trending/latest",
-     {"limit": "100"}),
+     {"limit": "200"}),
 
     # --- POSITIONING. Works on Basic. Also has no history endpoint. ---
     ("positioning", "liquidations",     "GET", "/v5/derivatives/liquidations/cryptocurrency/list/latest", {}),
@@ -128,9 +133,13 @@ def thin(stream, data):
             q = (c.get("quote", {}) or {}).get("USD", {}) or {}
             tags = c.get("tags")
             pf = c.get("platform") or {}
-            out.append({"id": c.get("id"), "s": c.get("symbol"), "r": c.get("cmc_rank"),
-                        # chain slug and contract address, for the holder pass
-                        "pf": pf.get("slug"), "ca": pf.get("token_address"),
+            cid = c.get("id")
+            # A contract address never changes, so writing it into 144 snapshots a day is
+            # 8 KB a snapshot of pure repetition. It lives in data/contracts.json instead,
+            # which the holder pass reads and which only grows when a new token appears.
+            if cid is not None and pf.get("token_address"):
+                CONTRACTS[str(cid)] = [pf.get("slug"), pf.get("token_address")]
+            out.append({"id": cid, "s": c.get("symbol"), "r": c.get("cmc_rank"),
                         # None distinguishes "not a stablecoin" from "tags not returned"
                         "st": ("stablecoin" in tags) if isinstance(tags, list) else None,
                         "p": _r(q.get("price")), "mc": _r(q.get("market_cap")),
@@ -190,12 +199,33 @@ def thin(stream, data):
         }.items()}
 
     if stream.startswith("most_visited") or stream == "trending_latest":
-        if isinstance(data, list):
-            # Shape UNVERIFIED - plan-gated since the key was issued. Whole records are
-            # kept until one has been seen, because discarding the field the signal turns
-            # out to depend on is the one mistake that cannot be undone after the fact.
-            return [dict(rank=i + 1, **{k: v for k, v in c.items() if k != "quote"})
-                    for i, c in enumerate(data[:100])]
+        if not isinstance(data, list):
+            return data
+        # Observed 22 Sep, once the plan allowed a single call: the response carries NO
+        # magnitude. No view count, no traffic score - `cmc_rank` is the market-cap rank,
+        # not an attention one. So attention is the POSITION in this list and nothing
+        # else, which is why only the position is stored.
+        #
+        # The 24h horizon is the actionable one and carries price with it, so assets that
+        # are heavily looked at but too small for the top-200 universe (EDEL was #1 most
+        # visited at market-cap rank 683) arrive complete and need no extra call. The
+        # longer horizons exist only to say whether attention is new, so they carry the
+        # position alone.
+        if stream == "most_visited_24h":
+            out = []
+            for i, c in enumerate(data):
+                q = (c.get("quote", {}) or {}).get("USD", {}) or {}
+                tags = c.get("tags")
+                out.append({"a": i + 1, "id": c.get("id"), "s": c.get("symbol"),
+                            "r": c.get("cmc_rank"),
+                            "st": ("stablecoin" in tags) if isinstance(tags, list) else None,
+                            "p": _r(q.get("price")), "mc": _r(q.get("market_cap")),
+                            "v": _r(q.get("volume_24h")),
+                            "c1": _r(q.get("percent_change_1h"), 4),
+                            "c24": _r(q.get("percent_change_24h"), 4),
+                            "c7": _r(q.get("percent_change_7d"), 4)})
+            return out
+        return [{"a": i + 1, "id": c.get("id")} for i, c in enumerate(data)]
     return data
 
 
@@ -219,7 +249,10 @@ for axis, name, method, path, params in STREAMS:
 # --- holder pass, on the slow cycle ----------------------------------------
 if os.environ.get("CROWDTAPE_HOLDERS") == "1":
     listings = (snapshot["streams"].get("listings") or {}).get("data") or []
-    targets = [c for c in listings if c.get("pf") and c.get("ca")][:HOLDERS_N]
+    order = [c["id"] for c in listings]              # by market cap rank
+    targets = [{"id": cid, "s": next((c["s"] for c in listings if c["id"] == cid), "?"),
+                "pf": CONTRACTS[str(cid)][0], "ca": CONTRACTS[str(cid)][1]}
+               for cid in order if str(cid) in CONTRACTS][:HOLDERS_N]
     rows, misses = [], {}
     print(f"\n  holder pass: {len(targets)} tokens")
     for c in targets:
@@ -241,6 +274,18 @@ if os.environ.get("CROWDTAPE_HOLDERS") == "1":
                             "unavailable": misses}, separators=(",", ":")) + "\n")
     print(f"  holders: {len(rows)} recorded, {len(misses)} unavailable "
           f"-> {out_h.name}")
+
+# The 24h attention stream carries a full quote so that assets too small for the
+# top-200 universe arrive complete. For the ones already in `listings` that is the same
+# numbers twice, so they are reduced to a position here, once both streams are in hand.
+listed = {c["id"] for c in ((snapshot["streams"].get("listings") or {}).get("data") or [])}
+mv = (snapshot["streams"].get("most_visited_24h") or {}).get("data")
+if listed and isinstance(mv, list):
+    snapshot["streams"]["most_visited_24h"]["data"] = [
+        {"a": r["a"], "id": r["id"]} if r["id"] in listed else r for r in mv]
+
+if CONTRACTS:
+    CONTRACTS_FILE.write_text(json.dumps(CONTRACTS, sort_keys=True, separators=(",", ":")))
 
 snapshot["credits"] = total_credits
 out = DATA / f"{stamp:%Y-%m-%d}.jsonl"

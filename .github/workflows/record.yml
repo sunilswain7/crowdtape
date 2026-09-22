@@ -33,16 +33,17 @@ jobs:
       - name: Snapshot continuously
         env:
           CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
-          # 600s costs ~720 credits a day against the Basic tier's 15,000 a month.
-          # Drop it once the Startup upgrade lands and the ceiling becomes 450,000.
+          # The Startup upgrade landed on 22 Sep: 450,000 credits and 600 req/min. The
+          # binding constraint is now repository size, not credits - a snapshot is ~57 KB
+          # with the attention streams, so ten minutes is ~8 MB a day.
           SNAPSHOT_INTERVAL_S: ${{ github.event.inputs.interval_s || '600' }}
           # The 3-hourly trigger cancels the running job, so anything uncommitted dies
           # with it. Measured: four gaps of 20-24 min on 19 Sep. One commit per snapshot
           # costs nothing and bounds the loss at zero.
           COMMIT_EVERY: "1"
-          # Wallet counts on a slow cycle: 50 tokens every 18 snapshots (3 hours) is
-          # 400 credits/day on top of the recorder's 720, inside the measured budget of
-          # 14,111 credits and 10.7 days.
-          HOLDERS_N: "50"
-          HOLDERS_EVERY: "18"
+          # Every contract token, every third snapshot (30 min): ~137 x 48 = 6,600
+          # credits/day against 450,000 a month. Wallet growth is the confident crowd
+          # axis, so its resolution is worth spending on.
+          HOLDERS_N: "200"
+          HOLDERS_EVERY: "3"
         run: python3 recorder/loop.py
