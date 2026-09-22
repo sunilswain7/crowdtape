@@ -8,3 +8,8 @@ __pycache__/
 
 # Not part of the submission
 launch-kit.md
+web/node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+web/tsconfig.tsbuildinfo

@@ -1,11 +1,13 @@
 name: pages
 
-# The site is static and its data is committed, so publishing is a file copy. Every
-# recorder commit that touches site/ republishes the board.
+# Builds the Next.js board and publishes it with the recorder's data beside it. The app
+# is a static export that fetches that JSON at runtime, so a new snapshot appears on the
+# site without rebuilding anything - the rebuild here only happens when the code or the
+# published data actually changes.
 on:
   push:
     branches: [main]
-    paths: ["site/**", ".github/workflows/pages.yml"]
+    paths: ["web/**", "site/data/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -13,6 +15,7 @@ permissions:
   pages: write
   id-token: write
 
+# Data lands every few minutes; collapsing rapid pushes into one deploy is the point.
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -25,9 +28,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - name: Build
+        run: npm run build
+        working-directory: web
+        env:
+          PAGES: "1"
+      - name: Place the recorded data beside it
+        run: cp -r site/data web/out/data
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: web/out
       - id: deploy
         uses: actions/deploy-pages@v4

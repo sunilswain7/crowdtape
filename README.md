@@ -55,7 +55,7 @@ as the work lands.
 | Signal engine (`engine/`) | ✅ built |
 | Event detection + scorecard | ✅ built |
 | Site data generator (`engine/report.py`) | ✅ built |
-| Dashboard (`site/`) | ✅ [live](https://sunilswain7.github.io/crowdtape/) |
+| Dashboard (`web/`, Next.js) | ✅ [live](https://sunilswain7.github.io/crowdtape/) |
 | Telegram bot (`bot/`) | ✅ built |
 | Test suite | ✅ 38 tests, green in CI |
 | Telegram bot | not started |
