@@ -6,7 +6,8 @@ Built for the [Build with CMC: API Hackathon](https://dorahacks.io/hackathon/coi
 Track: **Markets and Trading Tools**.
 
 **[Live board](https://sunilswain7.github.io/crowdtape/)** ·
-**[@crowdtape_bot](https://t.me/crowdtape_bot)** on Telegram
+**[@crowdtape_bot](https://t.me/crowdtape_bot)** on Telegram ·
+**[JUDGE.md](JUDGE.md)** if you have sixty seconds
 
 ---
 
