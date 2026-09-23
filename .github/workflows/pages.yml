@@ -8,6 +8,11 @@ on:
   push:
     branches: [main]
     paths: ["web/**", "site/data/**", ".github/workflows/pages.yml"]
+  # The recorder dispatches this after every commit. The schedule is the safety net for
+  # a dispatch that never lands - without one the board silently freezes, which it did
+  # for twenty-one hours before the cause was found.
+  schedule:
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:

@@ -4,6 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
+import Palette from "@/components/Palette";
+import Live from "@/components/Live";
+import { Latest, useData } from "@/lib/data";
 
 const NAV = [
   { href: "/", label: "Overview" },
@@ -70,8 +73,25 @@ function Settings() {
   );
 }
 
+function SearchHint() {
+  const [mac, setMac] = useState(false);
+  useEffect(() => { setMac(/Mac|iPhone|iPad/.test(navigator.platform)); }, []);
+  return (
+    <button
+      onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }))}
+      className="hidden lg:inline-flex items-center gap-2 rounded-lg border hair px-2.5 py-1.5 text-xs transition hover:bg-[var(--bg-2)]"
+      style={{ color: "var(--ink-3)" }}
+      aria-label="Search"
+    >
+      Search
+      <kbd className="rounded border hair px-1 py-0.5 text-[10px]">{mac ? "⌘" : "Ctrl"} K</kbd>
+    </button>
+  );
+}
+
 export default function Chrome({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const { data: latest } = useData<Latest>("latest.json", 60_000);
   const active = (href: string) =>
     href === "/" ? path === "/" || path === "" : path.startsWith(href);
 
@@ -115,6 +135,8 @@ export default function Chrome({ children }: { children: React.ReactNode }) {
             </nav>
 
             <div className="flex-1" />
+            <div className="hidden md:block"><Live latest={latest} /></div>
+            <SearchHint />
             <a
               href="https://t.me/crowdtape_bot"
               target="_blank"
@@ -127,6 +149,9 @@ export default function Chrome({ children }: { children: React.ReactNode }) {
             <Settings />
           </div>
 
+          <div className="flex md:hidden items-center gap-2 pb-1">
+            <Live latest={latest} />
+          </div>
           <nav className="flex md:hidden gap-1 pb-2 -mx-1 overflow-x-auto">
             {NAV.map((n) => (
               <Link
@@ -145,6 +170,7 @@ export default function Chrome({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
+      <Palette />
       <main className="flex-1 mx-auto w-full max-w-[1400px] px-4 sm:px-6 py-8">{children}</main>
 
       <footer className="border-t hair mt-12">

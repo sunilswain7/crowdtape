@@ -85,6 +85,29 @@ export default function Overview() {
                   <strong style={{ color: "var(--ink)" }}>#{widest.rank}</strong> by market cap.
                   A top-200 screener cannot see it at all.
                 </p>
+
+                <dl className="mt-5 grid max-w-sm grid-cols-3 gap-4 border-t pt-4 hair">
+                  {[
+                    { k: "24h", v: <Signed v={widest.pct_24h} dp={1} /> },
+                    { k: "vs market", v: <Signed v={widest.pct_24h == null || latest?.median_move_24h == null
+                        ? null : widest.pct_24h - latest.median_move_24h} dp={1} /> },
+                    { k: "Market cap", v: money(widest.market_cap) },
+                  ].map((s) => (
+                    <div key={s.k}>
+                      <dt className="text-[11px]" style={{ color: "var(--ink-3)" }}>{s.k}</dt>
+                      <dd className="mt-0.5 text-base font-semibold num">{s.v}</dd>
+                    </div>
+                  ))}
+                </dl>
+
+                {widest.reading !== "nothing" && (
+                  <div className="mt-4 flex items-start gap-2.5">
+                    <Pill reading={widest.reading} />
+                    <span className="text-[13px]" style={{ color: "var(--ink-2)" }}>
+                      {widest.why}
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 {gaps.slice(0, 5).map((r, i) => (

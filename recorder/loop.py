@@ -22,7 +22,7 @@ Env:
   LOOP_DURATION_S       default 5h40 - under the 6h job ceiling
   COMMIT_EVERY          default 3    - snapshots per commit
 """
-import os, subprocess, sys, time, pathlib
+import json, os, subprocess, sys, time, pathlib, urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 INTERVAL = int(os.environ.get("SNAPSHOT_INTERVAL_S", "600"))
@@ -34,6 +34,35 @@ HOLDERS_EVERY = int(os.environ.get("HOLDERS_EVERY", "18"))   # 18 x 10 min = 3 h
 def run(*args: str) -> tuple[int, str]:
     p = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
     return p.returncode, (p.stdout + p.stderr).strip()
+
+
+def redeploy() -> None:
+    """Ask the pages workflow to run.
+
+    A push made with GITHUB_TOKEN does not trigger workflows - GitHub suppresses it to
+    prevent recursion - so the recorder committing site/data every ten minutes never woke
+    the deploy, and the published board sat twenty-one hours behind the repository.
+    `workflow_dispatch` is one of the two documented exceptions to that rule, so the
+    recorder asks for the deploy explicitly instead of relying on the push.
+    """
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        return                                  # running locally; nothing to deploy
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/actions/workflows/pages.yml/dispatches",
+        data=json.dumps({"ref": "main"}).encode(),
+        headers={"Authorization": f"Bearer {token}",
+                 "Accept": "application/vnd.github+json",
+                 "Content-Type": "application/json"},
+        method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=20)
+        print("   deploy requested", flush=True)
+    except Exception as e:
+        # A failed deploy request must never take the recorder down with it: the
+        # snapshot is the irreplaceable part, the deploy can wait for the schedule.
+        print(f"   deploy request failed: {str(e)[:100]}", flush=True)
 
 
 def commit(n: int) -> None:
@@ -51,6 +80,8 @@ def commit(n: int) -> None:
     run("git", "pull", "--rebase", "--autostash", "origin", "main")
     code, out = run("git", "push", "origin", "HEAD:main")
     print(f"   push {'ok' if code == 0 else 'FAILED: ' + out[:200]}", flush=True)
+    if code == 0:
+        redeploy()
 
 
 started = time.time()

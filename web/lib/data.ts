@@ -61,17 +61,55 @@ async function grab<T>(file: string): Promise<T> {
   return res.json();
 }
 
-export function useData<T>(file: string) {
+/**
+ * Fetches a published file and keeps it fresh.
+ *
+ * The recorder takes a snapshot every ten minutes and redeploys, so an open tab polls
+ * rather than going stale until someone reloads. Polling pauses while the tab is hidden -
+ * a backgrounded tab refetching all night is rude and pointless - and refetches
+ * immediately on return, so a tab left open overnight is current the moment it is looked
+ * at rather than a minute later.
+ */
+export function useData<T>(file: string, everyMs = 60_000) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<number>(0);
+
   useEffect(() => {
     let live = true;
-    grab<T>(file)
-      .then((d) => live && setData(d))
-      .catch((e) => live && setError(String(e.message ?? e)));
-    return () => { live = false; };
-  }, [file]);
-  return { data, error, loading: !data && !error };
+    let timer: ReturnType<typeof setTimeout>;
+
+    const pull = () => {
+      if (document.hidden) return schedule();
+      grab<T>(file)
+        .then((d) => { if (live) { setData(d); setError(null); setFetchedAt(Date.now()); } })
+        .catch((e) => { if (live && !data) setError(String(e?.message ?? e)); })
+        .finally(schedule);
+    };
+    const schedule = () => { if (live) timer = setTimeout(pull, everyMs); };
+    const onVisible = () => { if (!document.hidden) { clearTimeout(timer); pull(); } };
+
+    pull();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file, everyMs]);
+
+  return { data, error, loading: !data && !error, fetchedAt };
+}
+
+/** A clock that ticks, so "3 min ago" does not quietly become a lie. */
+export function useNow(everyMs = 15_000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), everyMs);
+    return () => clearInterval(t);
+  }, [everyMs]);
+  return now;
 }
 
 // --- presentation ----------------------------------------------------------
@@ -119,8 +157,8 @@ export const price = (v: number | null | undefined) =>
 export const pct = (v: number | null | undefined, dp = 2) =>
   v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(dp)}%`;
 
-export const ago = (iso: string) => {
-  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+export const ago = (iso: string, now = Date.now()) => {
+  const m = Math.max(0, Math.round((now - Date.parse(iso)) / 60000));
   if (m < 1) return "just now";
   if (m < 60) return `${m} min ago`;
   const h = Math.round(m / 60);

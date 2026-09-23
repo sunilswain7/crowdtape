@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  actions: write        # to dispatch the pages deploy - a GITHUB_TOKEN push cannot
 
 # A newer run replaces an older one, so a late trigger costs nothing.
 concurrency:
@@ -46,4 +47,6 @@ jobs:
           # axis, so its resolution is worth spending on.
           HOLDERS_N: "200"
           HOLDERS_EVERY: "3"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: python3 recorder/loop.py
