@@ -15,7 +15,8 @@ import collections, datetime, json, pathlib, statistics, sys
 
 from .normalize import load, CoinState, HolderSeries
 from .signal import classify, Reading
-from .events import DIRECTION, HORIZONS_H, detect, score, scorecard, verdict
+from .events import (DIRECTION, HORIZONS_H, MATERIAL_EXCESS, detect, score,
+                     scorecard, verdict)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 _BLANK = CoinState(at="", coin_id=0, symbol="")
@@ -201,7 +202,11 @@ def build():
                    # What the reading claims: +1 expects outperformance, -1 expects
                    # underperformance, 0 claims nothing. Without it the page would
                    # colour a failed bearish call green for being a positive number.
-                   "direction": DIRECTION.get(c.reading, 0)} for c in cards],
+                   "direction": DIRECTION.get(c.reading, 0),
+                   # Below the threshold the verdict itself uses, the sign is noise.
+                   # Calling -0.09% a contradiction paints a coin flip red.
+                   "material": abs(c.mean_excess) >= MATERIAL_EXCESS}
+                  for c in cards],
     }, separators=(",", ":"), default=str))
 
     print(f"{len(snapshots)} snapshots -> {len(events)} events, "

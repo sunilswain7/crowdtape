@@ -39,7 +39,7 @@ export type Scorecard = {
   verdicts: Record<string, Verdict>;
   cards: { reading: Reading; horizon_h: number; n: number; graded: number;
            hits: number; hit_rate: number | null; mean_excess: number;
-           direction: number }[];
+           direction: number; material?: boolean }[];
 };
 
 export type SeriesPoint = { t: string; p: number; i: number | null; a: number | null; r: Reading };

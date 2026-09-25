@@ -84,7 +84,10 @@ export default function ScorecardPage() {
               </thead>
               <tbody>
                 {data.cards.map((c, i) => {
-                  const supports = c.direction ? c.mean_excess * c.direction > 0 : null;
+                  // Neither supporting nor contradicting below the threshold the verdict
+                  // uses — a mean excess of -0.09% is a coin flip, not a finding.
+                  const supports = !c.direction || c.material === false
+                    ? null : c.mean_excess * c.direction > 0;
                   return (
                     <tr key={i} className="border-b hair last:border-0">
                       <td className="px-4 py-2.5"><Pill reading={c.reading} /></td>
@@ -95,7 +98,9 @@ export default function ScorecardPage() {
                         {c.hit_rate == null ? "not graded" : `${Math.round(c.hit_rate * 100)}%`}
                       </td>
                       <td className="px-4 py-2.5 text-right num"
-                          title={supports == null ? "" : supports ? "supports the claim" : "contradicts the claim"}
+                          title={supports == null
+                            ? (c.direction ? "too small to mean anything" : "")
+                            : supports ? "supports the claim" : "contradicts the claim"}
                           style={{ color: supports == null ? "var(--ink-3)"
                                    : supports ? "var(--color-good)" : "var(--color-bad)" }}>
                         {(c.mean_excess * 100 >= 0 ? "+" : "") + (c.mean_excess * 100).toFixed(2)}%
