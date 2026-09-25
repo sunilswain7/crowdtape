@@ -169,11 +169,19 @@ def verdict(reading: Reading, scores: list[Score],
                        f"Indistinguishable from picking at random.")
 
 
-def scorecard(scores: list[Score]) -> list[Card]:
+def scorecard(scores: list[Score], confident_only: bool = True) -> list[Card]:
     """Aggregate by reading and horizon. Ungraded readings still report n, so a reading
-    that is never graded cannot quietly vanish from the report."""
+    that is never graded cannot quietly vanish from the report.
+
+    Filtered to confident readings by the same rule `verdict` uses. They were briefly
+    computed on different populations, which put a SUPPORTED verdict directly above a
+    table saying CONTRADICTS at two of three horizons - both correct, about different
+    sets of events, and together meaningless.
+    """
     buckets: dict[tuple[Reading, int], list[Score]] = {}
     for s in scores:
+        if confident_only and not s.event.confident:
+            continue
         buckets.setdefault((s.event.reading, s.horizon_h), []).append(s)
 
     cards = []
