@@ -2,3 +2,9 @@
 # commit, so a local run and a CI run conflict on every line. They are never merged by
 # hand: regenerate instead. Marked non-diffable to keep the noise out of reviews.
 site/data/*.json -diff linguist-generated
+
+# Resolve conflicts in the generated board data by taking either side. Both are
+# regenerated from data/ by `python3 -m engine.report`, the recorder rewrites them every
+# ten minutes, and hand-merging two machine-written JSON files is never the right answer.
+# Requires the local driver configured in scripts/setup-git.sh.
+site/data/*.json merge=regen
