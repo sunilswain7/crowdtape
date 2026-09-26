@@ -3,8 +3,13 @@ name: record
 # The schedule only STARTS a job. The job then holds itself open and snapshots on its own
 # clock - see recorder/loop.py for why cron alone produced four snapshots in nine hours.
 on:
+  # Hourly, not three-hourly. A runner can die mid-loop - one did on 26 Sep, four hours
+  # into a run, with no step reporting an error - and until the next trigger arrives
+  # nothing is recording. Three-hourly made that worth up to three hours of snapshots;
+  # it cost two. Restarting is nearly free: concurrency cancels the old run, the new one
+  # takes a snapshot immediately, and COMMIT_EVERY=1 means nothing uncommitted is lost.
   schedule:
-    - cron: "0 */3 * * *"
+    - cron: "7 * * * *"
   workflow_dispatch:
     inputs:
       interval_s:
