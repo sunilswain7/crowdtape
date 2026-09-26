@@ -12,7 +12,11 @@ from engine.signal import (Attention, Leverage, Price, Reading, classify,
 
 
 def coin(cid=1, sym="AAA", mc=1e9, vol=1e8, pct24=0.0, att=None, lo=None, sh=None,
-         att_avail=False, stable=None):
+         att_avail=None, stable=None):
+    # An asset carrying an attention rank implies the list was readable - the two cannot
+    # disagree in the wild, so the fixture does not let them disagree here either.
+    if att_avail is None:
+        att_avail = att is not None
     return CoinState(at="2026-09-18T00:00:00Z", coin_id=cid, symbol=sym, price=1.0,
                      market_cap=mc, volume_24h=vol, pct_24h=pct24,
                      attention_rank=att, attention_available=att_avail,
@@ -241,3 +245,36 @@ class ZeroMarketCap(unittest.TestCase):
         v = next(x for x in classify([subject] + filler) if x.symbol == "MALA")
         self.assertIsNot(v.reading, Reading.NOTHING)
         self.assertIs(v.price, Price.UP)
+
+
+class ConfidenceFromMeasuredAbsence(unittest.TestCase):
+    """Absent from a list that was read is a measurement, not a gap in one.
+
+    Requiring an attention *rank* for confidence meant quiet_accumulation could only be
+    graded on assets that happened to carry wallet data, because that reading fires
+    precisely on assets missing from the most-visited list. It sat at 39 graded while the
+    other readings passed 200.
+    """
+
+    def setUp(self):
+        self.filler = [coin(cid=100 + i, sym=f"F{i}", vol=1e8, lo=1e5, sh=1e5)
+                       for i in range(30)]
+
+    def verdict_for(self, subject):
+        return next(v for v in classify([subject] + self.filler)
+                    if v.coin_id == subject.coin_id)
+
+    def test_absent_from_a_readable_list_is_confident(self):
+        v = self.verdict_for(coin(att=None, att_avail=True, pct24=7.0,
+                                  mc=1e9, lo=1e5, sh=1e5))
+        self.assertIs(v.reading, Reading.QUIET_ACCUMULATION)
+        self.assertTrue(v.confident, "measured absence is a measurement")
+
+    def test_no_feed_at_all_is_still_not_confident(self):
+        v = self.verdict_for(coin(att=None, att_avail=False, pct24=7.0, vol=1e5,
+                                  mc=1e9, lo=1e5, sh=1e5))
+        self.assertFalse(v.confident, "turnover standing in for a crowd is not a count")
+
+    def test_a_missing_leverage_axis_still_withholds_confidence(self):
+        v = self.verdict_for(coin(att=12, att_avail=True, pct24=0.2, mc=1e9))
+        self.assertFalse(v.confident, "an absent axis is an absent axis")

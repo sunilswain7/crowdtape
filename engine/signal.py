@@ -238,7 +238,14 @@ def classify(states: list[CoinState],
             # Confidence means the crowd axis rests on a count of people - lookups or
             # wallets - rather than on turnover standing in for them, and that the
             # leverage axis was present at all.
-            confident=((s.attention_rank is not None or s.wallet_growth is not None)
+            #
+            # `attention_available` rather than `attention_rank is not None`: an asset
+            # absent from a list that WAS read is a measurement of low interest, which is
+            # exactly what classify_attention already calls QUIET. Requiring a rank meant
+            # quiet_accumulation - the reading that by definition fires on assets NOT on
+            # the list - could only ever be graded when the asset happened to have wallet
+            # data, and it sat frozen at 39 graded while the others passed 200.
+            confident=((s.attention_available or s.wallet_growth is not None)
                        and lev is not Leverage.UNKNOWN),
         ))
     return out
