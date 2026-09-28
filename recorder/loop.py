@@ -36,6 +36,33 @@ def run(*args: str) -> tuple[int, str]:
     return p.returncode, (p.stdout + p.stderr).strip()
 
 
+def dispatch(workflow: str) -> bool:
+    """Ask GitHub to start a workflow. Returns whether it was accepted.
+
+    `workflow_dispatch` is one of the two events a GITHUB_TOKEN may raise, and unlike the
+    schedule it actually fires: measured over ten days, cron delivered this workflow every
+    two to six hours against an hourly request, and once went eight and a half hours
+    without a run while nothing recorded. Dispatch has never been late.
+    """
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        return False
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches",
+        data=json.dumps({"ref": "main"}).encode(),
+        headers={"Authorization": f"Bearer {token}",
+                 "Accept": "application/vnd.github+json",
+                 "Content-Type": "application/json"},
+        method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=20)
+        return True
+    except Exception as e:
+        print(f"   dispatch {workflow} failed: {str(e)[:100]}", flush=True)
+        return False
+
+
 def redeploy() -> None:
     """Ask the pages workflow to run.
 
@@ -45,24 +72,10 @@ def redeploy() -> None:
     `workflow_dispatch` is one of the two documented exceptions to that rule, so the
     recorder asks for the deploy explicitly instead of relying on the push.
     """
-    token = os.environ.get("GITHUB_TOKEN")
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    if not token or not repo:
-        return                                  # running locally; nothing to deploy
-    req = urllib.request.Request(
-        f"https://api.github.com/repos/{repo}/actions/workflows/pages.yml/dispatches",
-        data=json.dumps({"ref": "main"}).encode(),
-        headers={"Authorization": f"Bearer {token}",
-                 "Accept": "application/vnd.github+json",
-                 "Content-Type": "application/json"},
-        method="POST")
-    try:
-        urllib.request.urlopen(req, timeout=20)
+    # A failed deploy request must never take the recorder down with it: the snapshot is
+    # the irreplaceable part, the deploy can wait.
+    if dispatch("pages.yml"):
         print("   deploy requested", flush=True)
-    except Exception as e:
-        # A failed deploy request must never take the recorder down with it: the
-        # snapshot is the irreplaceable part, the deploy can wait for the schedule.
-        print(f"   deploy request failed: {str(e)[:100]}", flush=True)
 
 
 def commit(n: int) -> None:
@@ -120,5 +133,14 @@ while time.time() - started < DURATION:
 
 if since_commit:
     commit(since_commit)
+
+# Hand off to a successor before exiting. The schedule is a backstop GitHub honours
+# erratically - measured over ten days it delivered this workflow every two to six hours
+# against an hourly request - so the chain is what actually keeps the recorder alive.
+# Each run starts the next, and the workflow's concurrency group makes a duplicate
+# harmless.
+if dispatch("record.yml"):
+    print("   successor dispatched", flush=True)
+
 print(f"\ndone: {taken} snapshots, {failures} failures, "
       f"{(time.time()-started)/60:.0f} min elapsed", flush=True)

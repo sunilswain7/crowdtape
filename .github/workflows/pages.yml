@@ -19,6 +19,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write        # to restart the recorder if it has stopped
 
 # Data lands every few minutes; collapsing rapid pushes into one deploy is the point.
 concurrency:
@@ -53,3 +54,22 @@ jobs:
           path: web/out
       - id: deploy
         uses: actions/deploy-pages@v4
+
+      # Watchdog. If a runner dies mid-loop the chain of dispatches breaks and only the
+      # schedule is left, which GitHub honours erratically - that cost eight and a half
+      # hours of snapshots on 28 Sep. This job runs far more often than the schedule does,
+      # so it is the cheapest reliable place to notice and restart.
+      - name: Restart the recorder if it has stopped
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          live=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/record.yml/runs?per_page=5" \
+                   --jq '[.workflow_runs[] | select(.status=="in_progress" or .status=="queued")] | length')
+          if [ "$live" = "0" ]; then
+            echo "recorder is not running — dispatching"
+            gh workflow run record.yml --ref main
+          else
+            echo "recorder alive ($live run(s))"
+          fi
