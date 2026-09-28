@@ -22,8 +22,17 @@ export type Row = {
   liq_long_24h: number | null; liq_short_24h: number | null;
 };
 
+export type Market = {
+  market_cap?: number | null; volume_24h?: number | null; btc_dominance?: number | null;
+  altcoin_market_cap?: number | null; open_interest?: number | null;
+  fear_greed?: number | null; fear_greed_label?: string | null;
+};
+
 export type Latest = {
   at: string; universe: number; snapshots_recorded: number; first_recorded: string;
+  market?: Market;
+  market_series?: { t: string; market_cap: number | null; btc_dominance: number | null;
+                    fear_greed: number | null }[];
   median_move_24h: number | null; attention_available: boolean;
   attention_covered?: number; wallets_covered?: number; holder_passes?: number;
   unavailable: Record<string, string>; rows: Row[];

@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import Palette from "@/components/Palette";
 import Live from "@/components/Live";
+import Ticker from "@/components/Ticker";
 import { Latest, useData } from "@/lib/data";
 
 const NAV = [
@@ -105,8 +106,12 @@ export default function Chrome({ children }: { children: React.ReactNode }) {
           <div className="flex h-14 items-center gap-2">
             <Link href="/" className="flex items-center gap-2.5 shrink-0">
               <span
-                className="grid size-7 place-items-center rounded-md text-[13px] font-bold"
-                style={{ background: "var(--accent)", color: "#fff" }}
+                className="grid size-7 place-items-center rounded-lg text-[13px] font-bold shadow-lg"
+                style={{
+                  background: "linear-gradient(135deg, var(--accent), var(--accent-2))",
+                  color: "#fff",
+                  boxShadow: "0 4px 14px -4px var(--accent)",
+                }}
               >
                 C
               </span>
@@ -141,8 +146,9 @@ export default function Chrome({ children }: { children: React.ReactNode }) {
               href="https://t.me/crowdtape_bot"
               target="_blank"
               rel="noopener"
-              className="hidden sm:inline-flex rounded-lg px-3 py-1.5 text-sm font-medium transition hover:opacity-90"
-              style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+              className="hidden sm:inline-flex rounded-lg px-3 py-1.5 text-sm font-medium transition hover:brightness-110"
+              style={{ background: "var(--accent-soft)", color: "var(--accent)",
+                       border: "1px solid color-mix(in oklab, var(--accent) 28%, transparent)" }}
             >
               Telegram
             </a>
@@ -172,6 +178,8 @@ export default function Chrome({ children }: { children: React.ReactNode }) {
 
       <Palette />
       <main className="flex-1 mx-auto w-full max-w-[1400px] px-4 sm:px-6 py-8">{children}</main>
+
+      <Ticker latest={latest} />
 
       <footer className="border-t hair mt-12">
         <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-8 text-sm" style={{ color: "var(--ink-3)" }}>

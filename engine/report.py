@@ -36,7 +36,28 @@ def build():
 
     holders = HolderSeries.load(ROOT / "data")
     snapshots: list[tuple[str, list[CoinState], dict]] = []
+    # Market context travels beside the snapshots rather than through CoinState: it
+    # describes the tape as a whole, not any one asset.
+    context: dict[str, dict] = {}
     for f in files:
+        for line in f.read_text().splitlines():
+            if not line.strip():
+                continue
+            raw = json.loads(line)
+            st = raw.get("streams", {}) or {}
+            g = (st.get("global") or {}).get("data")
+            fg = (st.get("fear_greed") or {}).get("data")
+            dx = (st.get("deriv_exchanges") or {}).get("data")
+            if g or fg:
+                context[raw["at"]] = {
+                    "market_cap": (g or {}).get("total_market_cap"),
+                    "volume_24h": (g or {}).get("total_volume_24h"),
+                    "btc_dominance": (g or {}).get("btc_dominance"),
+                    "altcoin_market_cap": (g or {}).get("altcoin_market_cap"),
+                    "open_interest": (dx or {}).get("total_oi"),
+                    "fear_greed": (fg or {}).get("value"),
+                    "fear_greed_label": (fg or {}).get("value_classification"),
+                }
         for states, notes in load(f, holders):
             if states:
                 snapshots.append((states[0].at, states, notes))
@@ -110,8 +131,20 @@ def build():
             "liq_long_24h": s.liq_long_24h, "liq_short_24h": s.liq_short_24h,
         })
 
+    ctx_ts = sorted(context)
+    ctx_now = context.get(at) or (context[ctx_ts[-1]] if ctx_ts else {})
+    # A day of context, thinned to something a sparkline can use without shipping
+    # thousands of points to a browser.
+    window = [t for t in ctx_ts if t >= (ctx_ts[-1][:10] if ctx_ts else "")][-720:]
+    step = max(1, len(window) // 120)
+    ctx_series = [{"t": t, **{k: context[t].get(k)
+                              for k in ("market_cap", "btc_dominance", "fear_greed")}}
+                  for t in window[::step]]
+
     (OUT / "latest.json").write_text(json.dumps({
         "at": at,
+        "market": ctx_now,
+        "market_series": ctx_series,
         "snapshots_recorded": len(snapshots),
         "first_recorded": snapshots[0][0],
         "universe": len(states),

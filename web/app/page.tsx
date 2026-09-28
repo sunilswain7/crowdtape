@@ -8,6 +8,8 @@ import {
 import {
   AssetLink, AttentionCell, Card, Empty, Pill, SectionHead, Signed, Skeleton, Stat, fadeUp,
 } from "@/components/ui";
+import Spark from "@/components/Spark";
+import Gauge from "@/components/Gauge";
 
 const VERDICT_STYLE: Record<string, { text: string; color: string }> = {
   supported: { text: "SUPPORTED", color: "var(--color-good)" },
@@ -26,11 +28,15 @@ export default function Overview() {
     (a, b) => (b.attention_over_cap ?? 0) - (a.attention_over_cap ?? 0));
   const flagged = rows.filter((r) => r.reading !== "nothing");
   const widest = gaps[0];
+  const counts: Record<string, number> = {};
+  for (const r of flagged) counts[r.reading] = (counts[r.reading] ?? 0) + 1;
 
   return (
     <div className="space-y-12">
       {/* --- the claim, stated once, at the top --------------------------- */}
-      <motion.section {...fadeUp} className="pt-4">
+      <motion.section {...fadeUp} className="relative pt-4">
+        <div className="pointer-events-none absolute -inset-x-20 -top-24 h-72 -z-10"
+             style={{ background: "var(--glow)" }} />
         <p className="text-sm font-medium" style={{ color: "var(--accent)" }}>
           {latest ? `${latest.snapshots_recorded.toLocaleString()} snapshots · updated ${ago(latest.at)}`
                   : " "}
@@ -38,7 +44,7 @@ export default function Overview() {
         <h1 className="mt-3 text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.08] max-w-4xl">
           The tape is what happened.
           <br />
-          <span style={{ color: "var(--ink-2)" }}>The crowd is what happens next.</span>
+          <span className="grad">The crowd is what happens next.</span>
         </h1>
         <p className="mt-5 max-w-2xl text-base leading-relaxed" style={{ color: "var(--ink-2)" }}>
           CoinMarketCap knows which coins people are looking up before they buy — and keeps
@@ -49,7 +55,8 @@ export default function Overview() {
           <Link
             href="/board"
             className="rounded-lg px-4 py-2 text-sm font-medium transition hover:opacity-90"
-            style={{ background: "var(--accent)", color: "#fff" }}
+            style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-2))",
+                     color: "#fff", boxShadow: "0 8px 24px -10px var(--accent)" }}
           >
             Open the board
           </Link>
@@ -147,31 +154,62 @@ export default function Overview() {
                most-visited list, because the interesting ones are rarely in both.`
             : ""}
         </SectionHead>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat
-            label="Median 24h move"
-            value={latest ? pct(latest.median_move_24h) : "—"}
-            sub="the bar every asset is judged against"
-            delay={0}
-          />
-          <Stat
-            label="Carrying a reading"
-            value={latest ? flagged.length : "—"}
-            sub={latest ? `of ${latest.universe} in the universe` : ""}
-            delay={0.05}
-          />
-          <Stat
-            label="Attention measured"
-            value={latest?.attention_covered ?? "—"}
-            sub="assets on the most-visited list"
-            delay={0.1}
-          />
-          <Stat
-            label="Wallet counts"
-            value={latest?.wallets_covered ?? "—"}
-            sub={latest ? `${latest.holder_passes ?? 0} passes recorded` : ""}
-            delay={0.15}
-          />
+        <div className="grid gap-3 lg:grid-cols-3">
+          <Card className="p-5 panel-hover lg:col-span-2">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="text-xs" style={{ color: "var(--ink-2)" }}>Total market cap</div>
+                <div className="mt-1 text-3xl font-semibold num">
+                  {money(latest?.market?.market_cap)}
+                </div>
+                <div className="mt-1 text-xs num" style={{ color: "var(--ink-3)" }}>
+                  24h volume {money(latest?.market?.volume_24h)} · BTC dominance{" "}
+                  {latest?.market?.btc_dominance?.toFixed(1) ?? "—"}%
+                </div>
+              </div>
+              <Spark w={230} h={54}
+                     values={(latest?.market_series ?? []).map((p) => p.market_cap)} />
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-4 border-t pt-4 hair sm:grid-cols-4">
+              {[
+                { k: "Median 24h", v: pct(latest?.median_move_24h ?? null),
+                  c: (latest?.median_move_24h ?? 0) >= 0 ? "var(--color-good)" : "var(--color-bad)" },
+                { k: "Open interest", v: money(latest?.market?.open_interest) },
+                { k: "Attention measured", v: latest?.attention_covered ?? "—" },
+                { k: "Wallets tracked", v: latest?.wallets_covered ?? "—" },
+              ].map((x) => (
+                <div key={x.k}>
+                  <div className="text-[11px]" style={{ color: "var(--ink-3)" }}>{x.k}</div>
+                  <div className="mt-0.5 text-base font-semibold num" style={{ color: x.c }}>
+                    {x.v}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card className="flex flex-col justify-between gap-4 p-5 panel-hover" delay={0.06}>
+            <Gauge value={latest?.market?.fear_greed ?? null}
+                   label={latest?.market?.fear_greed_label ?? "Fear & Greed"} />
+            <div className="border-t pt-4 hair">
+              <div className="text-xs" style={{ color: "var(--ink-2)" }}>Carrying a reading</div>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="text-2xl font-semibold num">{latest ? flagged.length : "—"}</span>
+                <span className="text-xs" style={{ color: "var(--ink-3)" }}>
+                  of {latest?.universe ?? "—"} assets
+                </span>
+              </div>
+              <div className="mt-2 flex h-1.5 overflow-hidden rounded-full"
+                   style={{ background: "var(--bg-3)" }}>
+                {(["exit_liquidity","loaded_spring","capitulation","quiet_accumulation"] as const)
+                  .map((k) => {
+                    const n = counts[k] ?? 0;
+                    const w = latest ? (n / Math.max(1, flagged.length)) * 100 : 0;
+                    return <div key={k} style={{ width: `${w}%`, background: READINGS[k].color }} />;
+                  })}
+              </div>
+            </div>
+          </Card>
         </div>
       </section>
 

@@ -16,8 +16,7 @@ export function Card({ children, className = "", delay = 0 }:
     <motion.div
       {...fadeUp}
       transition={{ ...fadeUp.transition, delay }}
-      className={`rounded-xl border hair ${className}`}
-      style={{ background: "var(--bg-1)" }}
+      className={`panel ${className}`}
     >
       {children}
     </motion.div>
@@ -27,7 +26,7 @@ export function Card({ children, className = "", delay = 0 }:
 export function Stat({ label, value, sub, accent = false, delay = 0 }:
   { label: string; value: React.ReactNode; sub?: React.ReactNode; accent?: boolean; delay?: number }) {
   return (
-    <Card delay={delay} className="p-4">
+    <Card delay={delay} className="p-4 panel-hover">
       <div className="text-xs" style={{ color: "var(--ink-2)" }}>{label}</div>
       <div
         className="mt-1 text-2xl font-semibold tracking-tight num"
